@@ -39,20 +39,26 @@
 
       <!-- Accessibility Tool Palette -->
       <div class="a11y-toolbar" role="region" aria-label="Accessibility Controls">
-        <button id="btn-toggle-contrast" class="btn-a11y" aria-label="Toggle High Contrast Mode (Alt + C)">
+        <!-- Fix S2: aria-pressed on all toggle buttons — JS will update dynamically -->
+        <button id="btn-toggle-contrast" class="btn-a11y" aria-label="Toggle High Contrast Mode (Alt + C)" aria-pressed="false">
           <span class="icon" aria-hidden="true">👁️</span>
           <span class="label">High Contrast</span>
         </button>
 
         <div class="font-sizer" role="group" aria-label="Font Size Adjuster">
           <button id="btn-font-dec" class="btn-a11y" aria-label="Decrease Font Size (Alt + -)">A-</button>
-          <span id="font-size-indicator" class="size-badge" aria-label="Current font scale: Normal">100%</span>
+          <span id="font-size-indicator" class="size-badge" aria-label="Current font scale: 100%">100%</span>
           <button id="btn-font-inc" class="btn-a11y" aria-label="Increase Font Size (Alt + +)">A+</button>
         </div>
 
-        <button id="btn-toggle-tts" class="btn-a11y active" aria-label="Toggle Auto Read Aloud Voice Output">
+        <button id="btn-toggle-tts" class="btn-a11y active" aria-label="Toggle Auto Read Aloud Voice Output" aria-pressed="true">
           <span class="icon" aria-hidden="true">🔊</span>
           <span class="label">Voice TTS: ON</span>
+        </button>
+
+        <button id="btn-open-settings" class="btn-a11y" aria-label="Google AI Studio BYOK Settings &amp; Model Selection">
+          <span class="icon" aria-hidden="true">⚙️</span>
+          <span class="label">BYOK &amp; Model</span>
         </button>
 
         <button id="btn-keyboard-help" class="btn-a11y" aria-label="Keyboard Shortcuts Help Modal">
@@ -89,9 +95,11 @@
         </div>
       </div>
 
-      <div id="candidates-grid" class="candidates-grid" role="list" aria-label="Candidates List">
+      <!-- Fix S1: removed role="list" — <article> elements are semantic sectioning; mixing article+role=listitem is invalid -->
+      <div id="candidates-grid" class="candidates-grid" aria-label="Candidates List">
         <!-- Candidate Cards populated dynamically via JS -->
-        <div class="loading-spinner-box">
+        <!-- Fix S4: spinner wrapped in live region so screen readers announce loading state -->
+        <div class="loading-spinner-box" role="status" aria-live="polite" aria-label="Loading cohort candidates">
           <div class="spinner" aria-hidden="true"></div>
           <p>Loading Cohort Candidates...</p>
         </div>
@@ -122,8 +130,9 @@
             <span class="gauge-label">Curriculum Days Covered:</span>
             <span id="gauge-days-count" class="gauge-value" aria-live="polite">1 / 4+ Days</span>
           </div>
-          <div id="days-badges-container" class="days-badges" aria-label="List of covered curriculum days">
-            <!-- Day Pills -->
+          <!-- Fix S5: role=list so dynamically added role=listitem chips are valid -->
+          <div id="days-badges-container" class="days-badges" role="list" aria-label="Covered curriculum days">            
+            <!-- Day Pills injected by JS with role=listitem -->
           </div>
         </div>
       </div>
@@ -253,7 +262,8 @@
             <span id="report-overall-score" class="score-number">88</span>
             <span class="score-max">/ 100</span>
           </div>
-          <span id="report-score-status" class="score-tag pass">PROFILES PASSED</span>
+          <!-- Fix S6: corrected placeholder text (was misspelled "PROFILES PASSED") -->
+          <span id="report-score-status" class="score-tag pass">PASSED</span>
         </div>
 
         <div class="score-card readiness-card">
@@ -340,6 +350,78 @@
     </section>
 
   </main>
+
+  <!-- Settings / BYOK Modal -->
+  <div id="modal-settings" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-settings-title">
+    <div class="modal-box" tabindex="-1">
+      <div class="modal-header">
+        <h3 id="modal-settings-title">⚙️ Google AI Studio BYOK & Model Settings</h3>
+        <button id="btn-close-settings" class="btn-close" aria-label="Close settings modal (Esc)">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group" style="margin-bottom: 1.25rem;">
+          <label for="select-model-name" style="font-weight: 700; display: block; margin-bottom: 0.5rem;">Select LLM Model Provider:</label>
+          <select id="select-model-name" class="input-search" style="width: 100%;">
+            <option value="gemma-4-31b-it" selected>Gemma 4 31B IT (Default)</option>
+            <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+            <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 1.5rem;">
+          <label for="input-byok-key" style="font-weight: 700; display: block; margin-bottom: 0.5rem;">Google AI Studio API Key (BYOK):</label>
+          <input type="password" id="input-byok-key" class="input-search" style="width: 100%; font-family: var(--font-mono);" placeholder="AIzaSy... (Leave empty for simulation mode)" />
+          <span style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.35rem; display: block;">
+            Your key is kept local to your browser session and passed in request headers.
+          </span>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+          <button id="btn-save-settings" class="btn-primary" style="padding: 0.75rem 1.5rem; border-radius: var(--radius-md); font-weight: 700; cursor: pointer;">
+            Save Settings
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Live Code Testing Modal -->
+  <div id="modal-live-test" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-live-test-title">
+    <div class="modal-box" style="max-width: 800px; width: 95%;" tabindex="-1">
+      <div class="modal-header">
+        <div>
+          <span class="badge-role" id="live-test-domain-badge">Day 7 Challenge</span>
+          <h3 id="modal-live-test-title" style="margin-top: 0.35rem;">💻 Live Code Challenge: Cosine Similarity</h3>
+        </div>
+        <div style="display: flex; align-items: center; gap: 1rem;">
+          <div id="live-test-timer" style="font-family: var(--font-mono); font-size: 1.25rem; font-weight: 800; color: var(--accent-amber);" aria-live="polite">
+            ⏱️ 05:00
+          </div>
+          <button id="btn-close-live-test" class="btn-close" aria-label="Close code challenge modal (Esc)">✕</button>
+        </div>
+      </div>
+
+      <div class="modal-body">
+        <div id="live-test-problem" style="background: var(--bg-input); padding: 1rem; border-radius: var(--radius-md); font-size: 0.95rem; margin-bottom: 1.25rem; border: 1px solid var(--border-color);">
+          Write a Python function `cosine_similarity(a: List[float], b: List[float]) -> float` that computes the cosine similarity between two vector embeddings.
+        </div>
+
+        <!-- Fix M5: moved inline styles to .code-editor CSS class so high-contrast overrides work -->
+        <label for="live-test-code-editor" class="code-editor-label">Write Your Code Solution:</label>
+        <textarea id="live-test-code-editor" class="code-editor" aria-label="Code solution editor" spellcheck="false" autocorrect="off" autocapitalize="off"></textarea>
+
+        <!-- Fix C4: feedback box uses semantic class names (not colour-only) and role set by JS -->
+        <div id="live-test-feedback-box" class="live-test-feedback hidden"></div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1.25rem;">
+          <span style="font-size: 0.8rem; color: var(--text-muted);">Pressing Submit evaluates syntax and algorithm logic.</span>
+          <button id="btn-submit-live-code" class="btn-primary" style="padding: 0.75rem 1.5rem; border-radius: var(--radius-md); font-weight: 700; cursor: pointer; background: var(--accent-emerald);">
+            🚀 Run Code & Submit
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Keyboard Shortcuts Modal -->
   <div id="modal-keyboard-help" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-shortcuts-title">

@@ -96,6 +96,11 @@ body {
   z-index: 9999;
   transition: top 0.2s ease;
 }
+/* Fix S7: use :focus-visible for consistency with the global rule */
+.skip-link:focus-visible {
+  top: 1rem;
+}
+/* Also keep :focus for browsers that don't support :focus-visible */
 .skip-link:focus {
   top: 1rem;
 }
@@ -233,6 +238,12 @@ html[data-contrast="high"] .brand-text h1 {
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* Fix M3: honour prefers-reduced-motion — disable view-transition animation */
+@media (prefers-reduced-motion: reduce) {
+  .view-panel { animation: none; }
+  .chat-bubble { animation: none; }
 }
 
 /* Hero & Search Header */
@@ -515,6 +526,12 @@ html[data-contrast="high"] .brand-text h1 {
 .status-dot.speaking {
   background: var(--accent-amber);
   animation: pulse 1s infinite alternate;
+}
+/* Fix M4: honour prefers-reduced-motion — disable avatar pulse & mic listening animation */
+@media (prefers-reduced-motion: reduce) {
+  .status-dot.speaking { animation: none; opacity: 1; }
+  .btn-mic.listening { animation: none; }
+  .avatar-circle.pulse-glow { animation: none; }
 }
 @keyframes pulse { from { opacity: 0.4; } to { opacity: 1; } }
 
@@ -920,3 +937,87 @@ kbd {
   .app-header, .a11y-toolbar, .report-actions, .skip-link { display: none !important; }
   .card-box, .score-card { border: 1px solid #ccc !important; box-shadow: none !important; background: #fff !important; }
 }
+
+/* ─── Accessibility Toast Notification (replaces alert()) ─────────────────── */
+.a11y-toast {
+  position: fixed;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  padding: 0.85rem 1.5rem;
+  border-radius: var(--radius-md);
+  font-size: 0.95rem;
+  font-weight: 600;
+  z-index: 9998;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  max-width: 480px;
+  width: 90%;
+  text-align: center;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.a11y-toast--hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(12px);
+}
+.a11y-toast--success { border-color: var(--accent-emerald); color: var(--accent-emerald); }
+.a11y-toast--error   { border-color: var(--accent-rose); color: var(--accent-rose); }
+.a11y-toast--info    { border-color: var(--primary-light); color: var(--primary-light); }
+
+/* ─── Live Code Editor (Fix M5 — removed hardcoded inline colours) ────────── */
+.code-editor-label {
+  font-weight: 700;
+  display: block;
+  margin-bottom: 0.5rem;
+  color: var(--text-main);
+}
+.code-editor {
+  width: 100%;
+  height: 220px;
+  /* Dark terminal look that still respects CSS variable system */
+  background: #0a0a0a;
+  color: #00e676;
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  padding: 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  resize: vertical;
+  line-height: 1.6;
+}
+/* High-contrast override: use standard text colours instead of terminal green */
+html[data-contrast="high"] .code-editor {
+  background: #000000 !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+.code-editor:focus-visible {
+  outline: 3px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+/* ─── Live Test Feedback (Fix C4 — not colour-only, has text label prefix) ─ */
+.live-test-feedback {
+  margin-top: 1rem;
+  padding: 0.85rem 1.1rem;
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  font-weight: 600;
+  border-left: 5px solid transparent; /* shape cue in addition to colour */
+}
+.live-test-feedback.hidden { display: none; }
+.live-test-feedback--pass {
+  background: rgba(16, 185, 129, 0.15);
+  border-left-color: var(--accent-emerald);
+  color: var(--accent-emerald);
+}
+.live-test-feedback--fail {
+  background: rgba(244, 63, 94, 0.15);
+  border-left-color: var(--accent-rose);
+  color: var(--accent-rose);
+}
+html[data-contrast="high"] .live-test-feedback--pass { color: var(--accent-emerald); }
+html[data-contrast="high"] .live-test-feedback--fail { color: var(--accent-rose); }
