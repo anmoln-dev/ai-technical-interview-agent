@@ -501,6 +501,12 @@ def interview_chat(req: ChatMessageRequest):
     
     unique_days_list = sorted(list(set(session["days_covered"])))
     
+    # Check if a live code challenge is available for current day
+    live_challenge = None
+    day_key = f"challenge_day_{current_item['day']}"
+    if day_key in LIVE_CODE_CHALLENGES and session["questions_asked"] in [3, 5, 7]:
+        live_challenge = LIVE_CODE_CHALLENGES[day_key]
+
     return {
         "agent_response": agent_response,
         "session_id": session_id,
@@ -510,7 +516,8 @@ def interview_chat(req: ChatMessageRequest):
         "current_day": current_item["day"],
         "is_complete": session["is_complete"],
         "in_follow_up": session["in_follow_up"],
-        "score_last": score
+        "score_last": score,
+        "live_test_challenge": live_challenge
     }
 
 @app.post("/api/interview/live-test/submit")
