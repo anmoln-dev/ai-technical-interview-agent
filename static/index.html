@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-contrast="normal" data-size="normal">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="AI Technical Interview Agent - Personalised, adaptive technical interview simulator for 31-day AI Cohort candidates with ground-up accessibility.">
+  <title>AI Technical Interview Agent | AI Cohort 31-Day Assessment</title>
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <!-- Accessibility Skip Link -->
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+
+  <!-- Top Announcement Bar (Screen Reader Status) -->
+  <div id="sr-announcements" class="sr-only" role="status" aria-live="assertive" aria-atomic="true"></div>
+
+  <!-- Header Bar -->
+  <header class="app-header" role="banner">
+    <div class="header-container">
+      <div class="brand-logo">
+        <div class="logo-icon" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a8 8 0 0 0-8 8c0 5.25 7 13 8 13s8-7.75 8-13a8 8 0 0 0-8-8z"></path>
+            <circle cx="12" cy="10" r="3"></circle>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>AI Technical Interview Agent</h1>
+          <span class="brand-subtitle">31-Day Enterprise AI Cohort Simulator</span>
+        </div>
+      </div>
+
+      <!-- Accessibility Tool Palette -->
+      <div class="a11y-toolbar" role="region" aria-label="Accessibility Controls">
+        <button id="btn-toggle-contrast" class="btn-a11y" aria-label="Toggle High Contrast Mode (Alt + C)">
+          <span class="icon" aria-hidden="true">👁️</span>
+          <span class="label">High Contrast</span>
+        </button>
+
+        <div class="font-sizer" role="group" aria-label="Font Size Adjuster">
+          <button id="btn-font-dec" class="btn-a11y" aria-label="Decrease Font Size (Alt + -)">A-</button>
+          <span id="font-size-indicator" class="size-badge" aria-label="Current font scale: Normal">100%</span>
+          <button id="btn-font-inc" class="btn-a11y" aria-label="Increase Font Size (Alt + +)">A+</button>
+        </div>
+
+        <button id="btn-toggle-tts" class="btn-a11y active" aria-label="Toggle Auto Read Aloud Voice Output">
+          <span class="icon" aria-hidden="true">🔊</span>
+          <span class="label">Voice TTS: ON</span>
+        </button>
+
+        <button id="btn-keyboard-help" class="btn-a11y" aria-label="Keyboard Shortcuts Help Modal">
+          <span class="icon" aria-hidden="true">⌨️</span>
+          <span class="label">Shortcuts</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Application Workspace -->
+  <main id="main-content" class="app-main" role="main" tabindex="-1">
+
+    <!-- VIEW 1: Candidate Selection Dashboard -->
+    <section id="view-candidate-select" class="view-panel active" aria-labelledby="heading-candidate-select">
+      <div class="section-hero">
+        <div class="hero-content">
+          <h2 id="heading-candidate-select">Select Cohort Candidate for Technical Interview</h2>
+          <p class="hero-desc">
+            Choose a candidate from the 31-day Enterprise AI Cohort. The AI Interviewer will analyze their learning journey, 
+            completed missions, attempt records, and skipped modules to generate an adaptive, personalized technical interview.
+          </p>
+        </div>
+        <div class="search-filter-box">
+          <label for="candidate-search-input" class="sr-only">Search candidates by name, job role, or ID</label>
+          <input type="search" id="candidate-search-input" class="input-search" placeholder="🔍 Search candidate name, role, or ID..." aria-label="Search candidates">
+          
+          <div class="filter-pills" role="group" aria-label="Filter Candidates by Experience">
+            <button class="pill-filter active" data-filter="all">All (20)</button>
+            <button class="pill-filter" data-filter="senior">Senior (5+ Yrs)</button>
+            <button class="pill-filter" data-filter="junior">Junior / Intern</button>
+            <button class="pill-filter" data-filter="perfect">100% Completed</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="candidates-grid" class="candidates-grid" role="list" aria-label="Candidates List">
+        <!-- Candidate Cards populated dynamically via JS -->
+        <div class="loading-spinner-box">
+          <div class="spinner" aria-hidden="true"></div>
+          <p>Loading Cohort Candidates...</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 2: Interactive Technical Interview Room -->
+    <section id="view-interview-room" class="view-panel" aria-labelledby="heading-interview-room">
+      <!-- Interview Header Dashboard -->
+      <div class="interview-header-bar">
+        <div class="candidate-mini-profile">
+          <button id="btn-back-to-list" class="btn-secondary" aria-label="Return to candidate selection list (Esc)">
+            ← Back to List
+          </button>
+          <div class="profile-info">
+            <h2 id="heading-interview-room" class="candidate-name-title">Interview Session</h2>
+            <span id="candidate-role-badge" class="badge-role">Senior AI Engineer</span>
+          </div>
+        </div>
+
+        <!-- Live Progress Gauges -->
+        <div class="interview-progress-bar" role="region" aria-label="Interview Progress">
+          <div class="progress-item">
+            <span class="gauge-label">Questions Asked:</span>
+            <span id="gauge-questions-count" class="gauge-value" aria-live="polite">Q1 / 8+</span>
+          </div>
+          <div class="progress-item">
+            <span class="gauge-label">Curriculum Days Covered:</span>
+            <span id="gauge-days-count" class="gauge-value" aria-live="polite">1 / 4+ Days</span>
+          </div>
+          <div id="days-badges-container" class="days-badges" aria-label="List of covered curriculum days">
+            <!-- Day Pills -->
+          </div>
+        </div>
+      </div>
+
+      <div class="interview-workspace">
+        <!-- Left Panel: Live Interviewer Avatar & Speech Controls -->
+        <aside class="interviewer-card" role="region" aria-label="AI Technical Interviewer Persona">
+          <div class="avatar-container">
+            <div id="interviewer-avatar" class="avatar-circle pulse-glow" aria-hidden="true">
+              <span class="avatar-initials">AI</span>
+              <div class="audio-waves" id="audio-waves-anim">
+                <span></span><span></span><span></span><span></span>
+              </div>
+            </div>
+            <div class="speaker-status">
+              <span id="speaker-status-indicator" class="status-dot online"></span>
+              <span id="speaker-status-text">AI Interviewer Idle</span>
+            </div>
+          </div>
+
+          <div class="topic-focus-box">
+            <span class="topic-label">Current Curriculum Topic:</span>
+            <div id="current-topic-badge" class="topic-value">Day 7: Embeddings & Vector Search</div>
+          </div>
+
+          <!-- Audio Voice Controls -->
+          <div class="audio-control-panel" role="group" aria-label="Speech Output Controls">
+            <button id="btn-speak-question" class="btn-audio" aria-label="Replay current question aloud (Alt + R)">
+              <span aria-hidden="true">📢</span> Replay Question
+            </button>
+            <div class="speech-rate-box">
+              <label for="speech-rate-select">Speed:</label>
+              <select id="speech-rate-select" aria-label="Select speech synthesis playback speed">
+                <option value="0.8">0.8x</option>
+                <option value="1.0" selected>1.0x (Normal)</option>
+                <option value="1.2">1.2x</option>
+                <option value="1.5">1.5x</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Shortcut hints -->
+          <div class="shortcuts-mini-guide" aria-label="Keyboard Shortcuts Quick Reference">
+            <h4>Quick Shortcuts</h4>
+            <ul>
+              <li><kbd>Alt</kbd> + <kbd>S</kbd> : Voice Dictation (Mic)</li>
+              <li><kbd>Alt</kbd> + <kbd>R</kbd> : Read Question Aloud</li>
+              <li><kbd>Enter</kbd> : Submit Answer</li>
+              <li><kbd>Alt</kbd> + <kbd>F</kbd> : Finish & View Feedback</li>
+            </ul>
+          </div>
+        </aside>
+
+        <!-- Right Panel: Conversation Stream & Input Workspace -->
+        <div class="conversation-container" role="region" aria-label="Interview Conversation History">
+          
+          <!-- Live Messages Log -->
+          <div id="chat-messages-log" class="chat-messages-log" role="log" aria-live="polite" aria-relevant="additions" tabindex="0">
+            <!-- Messages inserted dynamically -->
+          </div>
+
+          <!-- Input Controls Box -->
+          <div class="chat-input-area" role="form" aria-label="Candidate Response Form">
+            <!-- Speech Dictation Status Bar -->
+            <div id="stt-status-bar" class="stt-status-bar hidden" role="status" aria-live="polite">
+              <span class="mic-pulse-icon" aria-hidden="true">🎙️</span>
+              <span id="stt-status-text">Listening... Speak clearly into your microphone</span>
+              <button id="btn-stop-stt" class="btn-tiny-cancel" aria-label="Stop Voice Dictation">Stop</button>
+            </div>
+
+            <div class="input-row">
+              <textarea 
+                id="candidate-input-text" 
+                class="textarea-answer" 
+                placeholder="Type your technical response here, explaining architectural decisions, trade-offs, and design choices... (Press Enter to submit)"
+                aria-label="Your technical answer"
+                rows="3"
+              ></textarea>
+
+              <div class="input-actions">
+                <button id="btn-toggle-mic" class="btn-action btn-mic" aria-label="Start Voice Dictation (Alt + S)" title="Voice Dictation (Alt + S)">
+                  <span aria-hidden="true">🎙️</span>
+                  <span class="sr-only">Start Voice Input</span>
+                </button>
+                <button id="btn-submit-answer" class="btn-action btn-submit" aria-label="Submit Answer (Enter)" title="Submit Answer (Enter)">
+                  <span aria-hidden="true">➔</span>
+                  <span class="btn-text">Submit</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="input-footer">
+              <span class="help-hint">Provide technical details, trade-offs, and failure handling for higher evaluation scores.</span>
+              <button id="btn-force-finish" class="btn-link-finish" aria-label="Finish Interview early & generate evaluation report (Alt + F)">
+                Finish Interview & Generate Report
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 3: Comprehensive Feedback & Evaluation Report Portal -->
+    <section id="view-feedback-portal" class="view-panel" aria-labelledby="heading-feedback-portal">
+      <div class="report-header">
+        <div class="report-title-block">
+          <span class="report-badge">Official Assessment Report</span>
+          <h2 id="heading-feedback-portal">Technical Interview Performance & Feedback</h2>
+          <p id="report-candidate-subtitle" class="report-subtitle">Candidate: Sarah Johnson | Senior Data Engineer</p>
+        </div>
+
+        <div class="report-actions">
+          <button id="btn-print-report" class="btn-secondary" aria-label="Print or Save Report as PDF">
+            🖨️ Export PDF / Print
+          </button>
+          <button id="btn-restart-new" class="btn-primary" aria-label="Start New Interview Session">
+            🔄 New Interview
+          </button>
+        </div>
+      </div>
+
+      <!-- Score & Readiness Overview Cards -->
+      <div class="report-summary-cards">
+        <div class="score-card main-score">
+          <span class="card-label">Overall Interview Score</span>
+          <div class="score-ring">
+            <span id="report-overall-score" class="score-number">88</span>
+            <span class="score-max">/ 100</span>
+          </div>
+          <span id="report-score-status" class="score-tag pass">PROFILES PASSED</span>
+        </div>
+
+        <div class="score-card readiness-card">
+          <span class="card-label">Assessed Readiness Level</span>
+          <h3 id="report-readiness-level" class="readiness-title">Senior / Staff AI Engineer Ready</h3>
+          <p id="report-recommendation-text" class="readiness-desc">
+            Outstanding technical depth. Strong candidate for enterprise AI Lead roles.
+          </p>
+        </div>
+
+        <div class="score-card metrics-card">
+          <span class="card-label">Interview Coverage Stats</span>
+          <ul class="stats-list">
+            <li><span>Total Questions Asked:</span> <strong id="report-questions-total">8 Questions</strong></li>
+            <li><span>Curriculum Days Covered:</span> <strong id="report-days-total">5 Days</strong></li>
+            <li><span>Follow-up Probes Passed:</span> <strong>2 Follow-ups</strong></li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Domain Breakdown Chart & Table (Accessibility Fallback) -->
+      <div class="report-section card-box">
+        <h3>Core Curriculum Domain Mastery</h3>
+        
+        <div class="domain-visualization-grid">
+          <!-- SVG Radar/Bar Visualizer -->
+          <div class="chart-container" aria-hidden="true">
+            <div id="domain-bar-chart" class="domain-bar-chart">
+              <!-- Rendered via JS -->
+            </div>
+          </div>
+
+          <!-- Accessible Data Table for Screen Readers -->
+          <div class="accessible-table-container">
+            <table class="data-table" aria-label="Domain Mastery Scores Table">
+              <thead>
+                <tr>
+                  <th scope="col">Curriculum Domain</th>
+                  <th scope="col">Mastery Score</th>
+                  <th scope="col">Status</th>
+                </tr>
+              </thead>
+              <tbody id="domain-table-body">
+                <!-- Rows via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Strengths & Growth Areas -->
+      <div class="report-dual-grid">
+        <div class="report-section card-box strength-box">
+          <h3>Key Engineering Strengths</h3>
+          <ul id="report-strengths-list" class="feedback-bullet-list strength">
+            <!-- Bullets via JS -->
+          </ul>
+        </div>
+
+        <div class="report-section card-box growth-box">
+          <h3>Actionable Areas for Growth</h3>
+          <ul id="report-growth-list" class="feedback-bullet-list growth">
+            <!-- Bullets via JS -->
+          </ul>
+        </div>
+      </div>
+
+      <!-- Recommended Review Curriculum Days -->
+      <div class="report-section card-box review-days-box">
+        <h3>Targeted Study Roadmap</h3>
+        <p class="section-subtext">Based on your interview responses, revisit these specific cohort curriculum days before upcoming enterprise technical interviews:</p>
+        <div id="report-review-days-container" class="review-days-grid">
+          <!-- Day Cards via JS -->
+        </div>
+      </div>
+
+      <!-- Question-by-Question Detailed Breakdown -->
+      <div class="report-section card-box transcript-breakdown-box">
+        <h3>Question-by-Question Technical Evaluation</h3>
+        <div id="report-evaluations-accordion" class="evaluations-accordion" role="region" aria-label="Detailed Question Evaluations">
+          <!-- Accordion items via JS -->
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Keyboard Shortcuts Modal -->
+  <div id="modal-keyboard-help" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-shortcuts-title">
+    <div class="modal-box" tabindex="-1">
+      <div class="modal-header">
+        <h3 id="modal-shortcuts-title">⌨️ Keyboard Navigation & Accessibility Shortcuts</h3>
+        <button id="btn-close-modal" class="btn-close" aria-label="Close shortcuts modal (Esc)">✕</button>
+      </div>
+      <div class="modal-body">
+        <table class="shortcuts-table" aria-label="Keyboard Shortcuts List">
+          <thead>
+            <tr>
+              <th scope="col">Shortcut</th>
+              <th scope="col">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><kbd>Alt</kbd> + <kbd>S</kbd></td><td>Toggle Voice Dictation (Microphone Input)</td></tr>
+            <tr><td><kbd>Alt</kbd> + <kbd>R</kbd></td><td>Read Aloud Current Interviewer Question (TTS)</td></tr>
+            <tr><td><kbd>Enter</kbd> / <kbd>Ctrl</kbd> + <kbd>Enter</kbd></td><td>Submit Candidate Response</td></tr>
+            <tr><td><kbd>Alt</kbd> + <kbd>C</kbd></td><td>Toggle High Contrast Theme Mode</td></tr>
+            <tr><td><kbd>Alt</kbd> + <kbd>+</kbd></td><td>Increase Font Size Scale</td></tr>
+            <tr><td><kbd>Alt</kbd> + <kbd>-</kbd></td><td>Decrease Font Size Scale</td></tr>
+            <tr><td><kbd>Alt</kbd> + <kbd>F</kbd></td><td>Finish Interview & Generate Feedback Report</td></tr>
+            <tr><td><kbd>Esc</kbd></td><td>Close Modal / Back to Candidate List</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- JavaScript App Logic -->
+  <script src="/static/app.js" type="module"></script>
+</body>
+</html>
