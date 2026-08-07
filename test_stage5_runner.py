@@ -156,6 +156,51 @@ class TestStage5E2E(unittest.TestCase):
         self.assertLess(bad_res["score"], 50)
         self.assertIn("Syntax error", bad_res["feedback"])
 
+    def test_repeat_and_unsure_intent_handling(self):
+        cand_id = client.get("/api/candidates").json()[0]["member"]["id"]
+        start_data = client.post("/api/interview/start", json={"candidate_id": cand_id}).json()
+        session_id = start_data["session_id"]
+        self.assertEqual(start_data["mode"], "demo")
+        self.assertIn("Demo Mode", start_data["mode_notice"])
+
+        # Candidate asks to repeat question
+        repeat_resp = client.post("/api/interview/chat", json={
+            "session_id": session_id,
+            "message": "Sorry, could you repeat that?"
+        }).json()
+
+        # Should NOT advance topic or say "great engineering reasoning"
+        self.assertNotIn("great engineering reasoning", repeat_phrases := repeat_resp["agent_response"].lower())
+        self.assertIn("restate", repeat_phrases)
+        self.assertEqual(repeat_resp["questions_asked"], 1)
+
+        # Candidate says unsure
+        unsure_resp = client.post("/api/interview/chat", json={
+            "session_id": session_id,
+            "message": "I don't know"
+        }).json()
+
+        self.assertNotIn("great engineering reasoning", unsure_resp["agent_response"].lower())
+        self.assertIn("no worries", unsure_resp["agent_response"].lower())
+        self.assertEqual(unsure_resp["questions_asked"], 2)
+
+    def test_demo_vs_live_mode_notifications(self):
+        cand_id = client.get("/api/candidates").json()[0]["member"]["id"]
+        
+        # Demo mode test
+        demo_data = client.post("/api/interview/start", json={"candidate_id": cand_id}).json()
+        self.assertEqual(demo_data["mode"], "demo")
+        self.assertIn("Demo Mode", demo_data["mode_notice"])
+
+        # Live mode test
+        live_data = client.post("/api/interview/start", json={
+            "candidate_id": cand_id,
+            "api_key": "AIzaSy_sample_test_key_long_enough",
+            "model_name": "gemini-2.5-flash"
+        }).json()
+        self.assertEqual(live_data["mode"], "live")
+        self.assertIn("Live Mode", live_data["mode_notice"])
+
     def test_frontend_static_serving_and_accessibility_markers(self):
         response = client.get("/")
         self.assertEqual(response.status_code, 200)
@@ -171,6 +216,7 @@ class TestStage5E2E(unittest.TestCase):
         self.assertIn('aria-modal="true"', html)
         self.assertIn('data-contrast="normal"', html)
         self.assertIn('data-size="normal"', html)
+        self.assertIn('mode-status-badge', html)
         self.assertIn('app.js', html)
         self.assertIn('styles.css', html)
 

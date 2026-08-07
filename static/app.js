@@ -269,6 +269,20 @@ function setupSearchAndFilters() {
   });
 }
 
+function updateModeBadge(mode, notice) {
+  const badge = document.getElementById('mode-status-badge');
+  if (!badge) return;
+
+  if (mode === 'live') {
+    badge.className = 'badge-mode live';
+    badge.textContent = '⚡ Live AI Mode (Google AI Studio)';
+  } else {
+    badge.className = 'badge-mode demo';
+    badge.textContent = '💡 Demo Mode (Simulated AI)';
+  }
+  badge.title = notice || '';
+}
+
 // ─── Start interview session ───────────────────────────────────────────────────
 async function startInterviewSession(candidateId) {
   try {
@@ -289,6 +303,7 @@ async function startInterviewSession(candidateId) {
 
     document.getElementById('heading-interview-room').textContent = `${data.candidate.name}'s Interview`;
     document.getElementById('candidate-role-badge').textContent = data.candidate.jobRole;
+    updateModeBadge(data.mode, data.mode_notice);
 
     updateProgressGauges(data.questions_asked, data.days_covered_list, data.current_topic);
 
@@ -297,7 +312,7 @@ async function startInterviewSession(candidateId) {
     appendMessage('agent', data.initial_question);
 
     showView('interviewRoom');
-    announceSR(`Interview session started for ${data.candidate.name}. First question asked.`);
+    announceSR(`Interview session started for ${data.candidate.name}. ${data.mode_notice || ''}`);
 
     if (state.ttsEnabled) speakText(data.initial_question);
   } catch (err) {
@@ -383,6 +398,7 @@ async function submitAnswer() {
     state.daysCovered = data.days_covered_list;
 
     updateProgressGauges(data.questions_asked, data.days_covered_list);
+    if (data.mode) updateModeBadge(data.mode, data.mode_notice);
     appendMessage('agent', data.agent_response);
 
     if (data.live_test_challenge) openLiveTestModal(data.live_test_challenge);

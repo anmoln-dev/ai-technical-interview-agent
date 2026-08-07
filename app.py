@@ -10,6 +10,12 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+try:
+    from google import genai
+    GENAI_AVAILABLE = True
+except ImportError:
+    GENAI_AVAILABLE = False
+
 app = FastAPI(
     title="AI Technical Interview Agent",
     description="Adaptive, personalized technical interview agent for 31-day AI Cohort candidates",
@@ -240,38 +246,22 @@ DAY_QUESTIONS = {
 # Helper to pick candidate's question roadmap
 def generate_roadmap_for_candidate(candidate: Dict[str, Any]) -> List[Dict[str, Any]]:
     missions = candidate.get("missions", [])
-    candidate_days = [m["day"] for m in missions]
-    
-    # Priority days:
-    # 1. High attempt days (struggled) -> deep probe
-    # 2. Key milestone days: 7, 8, 10, 12, 13, 16, 22, 23, 28, 31
-    # 3. Skipped days -> ask conceptual/tradeoff question
     high_attempt_days = [m["day"] for m in missions if m.get("attempts", 1) >= 3]
     skipped_days = [m["day"] for m in missions if m.get("skipped", False)]
-    
     available_days = list(DAY_QUESTIONS.keys())
-    
-    # Target picking at least 6 distinct days from available_days
     selected_days = []
     
-    # First include high attempt days if in available_days
     for d in high_attempt_days:
         if d in available_days and d not in selected_days:
             selected_days.append(d)
-            
-    # Include skipped days if in available_days
     for d in skipped_days:
         if d in available_days and d not in selected_days:
             selected_days.append(d)
-            
-    # Fill remaining from standard key days
     for d in [31, 23, 22, 10, 8, 7, 13, 12, 28, 27, 20, 16]:
         if d not in selected_days and d in available_days:
             selected_days.append(d)
             
-    # Ensure order logic
     selected_days.sort()
-    
     roadmap = []
     for d in selected_days:
         questions = DAY_QUESTIONS.get(d, [])
@@ -284,6 +274,55 @@ def generate_roadmap_for_candidate(candidate: Dict[str, Any]) -> List[Dict[str, 
             })
     return roadmap
 
+def classify_candidate_intent(text: str) -> str:
+    t = text.lower().strip()
+    repeat_phrases = ["repeat", "pardon", "what did you say", "didn't catch", "say that again", "could you repeat", "can you repeat", "clarify", "what was the question", "repeate"]
+    for phrase in repeat_phrases:
+        if phrase in t:
+            return "REPEAT_REQUEST"
+            
+    dont_know_phrases = ["i don't know", "dont know", "not sure", "no idea", "pass", "skip", "unsure", "haven't done this"]
+    for phrase in dont_know_phrases:
+        if phrase in t:
+            return "UNSURE"
+            
+    return "ANSWER"
+
+def call_gemini_api_sdk(api_key: str, model_name: str, candidate_name: str, candidate_role: str, day: int, domain: str, question: str, candidate_text: str, next_day: Optional[int] = None, next_domain: Optional[str] = None, next_question: Optional[str] = None) -> Optional[str]:
+    """Uses the official google-genai package for requests if available."""
+    if not GENAI_AVAILABLE:
+        return None
+    try:
+        client = genai.Client(api_key=api_key)
+        # Normalize model identifier
+        model = model_name if model_name and "gemini" in model_name else "gemini-2.5-flash"
+        
+        prompt_instruction = (
+            f"You are a Senior AI Lead Interviewer evaluating candidate {candidate_name} ({candidate_role}).\n"
+            f"Current curriculum topic: Day {day} - {domain}.\n"
+            f"Question asked: {question}\n"
+            f"Candidate response: {candidate_text}\n\n"
+        )
+        if next_day and next_question:
+            prompt_instruction += (
+                f"Instructions: Acknowledge the candidate's specific response in 1 short sentence without empty praise. "
+                f"Then transition smoothly to Day {next_day}: {next_domain}. "
+                f"End by asking: '{next_question}'."
+            )
+        else:
+            prompt_instruction += (
+                f"Instructions: Ask a relevant, technical follow-up question focusing on production trade-offs or failure cases."
+            )
+            
+        response = client.models.generate_content(
+            model=model,
+            contents=prompt_instruction
+        )
+        return response.text.strip() if response and response.text else None
+    except Exception as e:
+        print(f"google-genai SDK call exception: {e}")
+        return None
+
 @app.get("/api/health")
 def health_check():
     return {
@@ -291,7 +330,8 @@ def health_check():
         "service": "AI Technical Interview Agent", 
         "version": "1.0.0",
         "default_model": "gemma-4-31b-it",
-        "byok_supported": True
+        "byok_supported": True,
+        "genai_sdk_available": GENAI_AVAILABLE
     }
 
 @app.get("/api/models")
@@ -327,7 +367,7 @@ def get_candidate(candidate_id: str):
     raise HTTPException(status_code=404, detail="Candidate not found")
 
 @app.post("/api/interview/start")
-def start_interview(req: StartInterviewRequest):
+def start_interview(req: StartInterviewRequest, request: Request):
     candidates = CANDIDATE_DATA.get("candidates", [])
     candidate = None
     for c in candidates:
@@ -338,6 +378,10 @@ def start_interview(req: StartInterviewRequest):
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
         
+    api_key = req.api_key or request.headers.get("X-GEMINI-API-KEY")
+    model_name = req.model_name or "gemma-4-31b-it"
+    is_live = bool(api_key and len(api_key.strip()) >= 10)
+    
     session_id = str(uuid.uuid4())
     roadmap = generate_roadmap_for_candidate(candidate)
     
@@ -349,6 +393,12 @@ def start_interview(req: StartInterviewRequest):
         f"{initial_item['question']}"
     )
     
+    mode_notice = (
+        f"⚡ Live Mode (Connected via Google AI Studio API using {model_name})"
+        if is_live
+        else "💡 Demo Mode (Simulated AI Interviewer — Add your Google AI Studio API Key in BYOK Settings for live Gemini LLM)"
+    )
+    
     session = {
         "session_id": session_id,
         "candidate_id": req.candidate_id,
@@ -357,6 +407,9 @@ def start_interview(req: StartInterviewRequest):
         "current_step": 0,
         "questions_asked": 1,
         "days_covered": [initial_item["day"]],
+        "api_key": api_key,
+        "model_name": model_name,
+        "is_live": is_live,
         "messages": [
             {
                 "role": "agent",
@@ -381,11 +434,13 @@ def start_interview(req: StartInterviewRequest):
         "questions_asked": 1,
         "days_covered_count": 1,
         "days_covered_list": [initial_item["day"]],
-        "is_complete": False
+        "is_complete": False,
+        "mode": "live" if is_live else "demo",
+        "mode_notice": mode_notice
     }
 
 @app.post("/api/interview/chat")
-def interview_chat(req: ChatMessageRequest):
+def interview_chat(req: ChatMessageRequest, request: Request):
     session_id = req.session_id
     if session_id not in SESSIONS:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -403,6 +458,7 @@ def interview_chat(req: ChatMessageRequest):
     current_step = session["current_step"]
     roadmap = session["roadmap"]
     current_item = roadmap[current_step] if current_step < len(roadmap) else roadmap[-1]
+    candidate_info = session.get("candidate", {}).get("member", {})
     
     # Store candidate message
     session["messages"].append({
@@ -412,16 +468,124 @@ def interview_chat(req: ChatMessageRequest):
         "topic": current_item["domain"]
     })
     
-    # Assess length & content depth of candidate response
+    # Check for BYOK API Key
+    api_key = req.api_key or request.headers.get("X-GEMINI-API-KEY") or session.get("api_key")
+    model_name = req.model_name or session.get("model_name", "gemma-4-31b-it")
+    is_live = bool(api_key and len(api_key.strip()) >= 10)
+    
+    mode_notice = (
+        f"⚡ Live Mode (Powered by Google AI Studio API: {model_name})"
+        if is_live
+        else "💡 Demo Mode (Simulated AI Interviewer — Add your Google AI Studio API Key in Settings for live Gemini LLM)"
+    )
+    
+    intent = classify_candidate_intent(candidate_text)
+    
+    # ── 1. HANDLE REPEAT / CLARIFICATION REQUEST ────────────────────────────────
+    if intent == "REPEAT_REQUEST":
+        last_question = current_item["question"]
+        for m in reversed(session["messages"][:-1]):
+            if m.get("role") == "agent":
+                last_question = m["content"]
+                break
+                
+        agent_response = (
+            f"No problem at all! Let me restate the question for you:\n\n"
+            f"{last_question}"
+        )
+        
+        session["messages"].append({
+            "role": "agent",
+            "content": agent_response,
+            "day": current_item["day"],
+            "topic": current_item["domain"]
+        })
+        
+        unique_days_list = sorted(list(set(session["days_covered"])))
+        return {
+            "agent_response": agent_response,
+            "session_id": session_id,
+            "questions_asked": session["questions_asked"],
+            "days_covered_count": len(unique_days_list),
+            "days_covered_list": unique_days_list,
+            "current_day": current_item["day"],
+            "is_complete": session["is_complete"],
+            "in_follow_up": session["in_follow_up"],
+            "score_last": 70,
+            "live_test_challenge": None,
+            "mode": "live" if is_live else "demo",
+            "mode_notice": mode_notice
+        }
+
+    # ── 2. HANDLE UNSURE / SKIP REQUEST ─────────────────────────────────────────
+    if intent == "UNSURE":
+        score = 60
+        feedback_note = "Candidate indicated they were unsure on this topic."
+        session["evaluations"].append({
+            "question_num": session["questions_asked"],
+            "day": current_item["day"],
+            "domain": current_item["domain"],
+            "question": current_item["question"],
+            "candidate_answer": candidate_text,
+            "score": score,
+            "note": feedback_note,
+            "keywords_found": []
+        })
+        
+        session["in_follow_up"] = False
+        session["current_step"] += 1
+        next_step = session["current_step"]
+        
+        if next_step < len(roadmap):
+            next_item = roadmap[next_step]
+            if next_item["day"] not in session["days_covered"]:
+                session["days_covered"].append(next_item["day"])
+            session["questions_asked"] += 1
+            
+            agent_response = (
+                f"No worries! System trade-offs for {current_item['domain']} can be nuanced. "
+                f"In production, engineering teams typically weigh retrieval latency against memory overhead.\n\n"
+                f"Let's move to **Day {next_item['day']}: {next_item['domain']}**.\n\n"
+                f"{next_item['question']}"
+            )
+        else:
+            session["is_complete"] = True
+            agent_response = (
+                f"Thank you for walking through your engineering journey! "
+                f"Your structured interview evaluation report is ready below."
+            )
+            
+        session["messages"].append({
+            "role": "agent",
+            "content": agent_response,
+            "day": current_item["day"],
+            "topic": current_item["domain"]
+        })
+        
+        unique_days_list = sorted(list(set(session["days_covered"])))
+        return {
+            "agent_response": agent_response,
+            "session_id": session_id,
+            "questions_asked": session["questions_asked"],
+            "days_covered_count": len(unique_days_list),
+            "days_covered_list": unique_days_list,
+            "current_day": current_item["day"],
+            "is_complete": session["is_complete"],
+            "in_follow_up": session["in_follow_up"],
+            "score_last": score,
+            "live_test_challenge": None,
+            "mode": "live" if is_live else "demo",
+            "mode_notice": mode_notice
+        }
+
+    # ── 3. STANDARD ANSWER EVALUATION & RESPONSE GENERATION ──────────────────────
     words = candidate_text.split()
     word_count = len(words)
-    
-    # Determine evaluation score for candidate's answer
     technical_keywords = ["latency", "vector", "embedding", "trade-off", "fastapi", "mcp", "agent", "chroma", "pydantic", "docker", "k8s", "sql", "rag", "eval", "guardrail", "cache", "token", "quantization", "fine-tuning"]
     found_keywords = [w for w in technical_keywords if w in candidate_text.lower()]
     
     if word_count < 15:
-        score = 55
+        score = 65
         feedback_note = "Response was brief. Lacked specific architectural trade-offs or technical details."
     elif len(found_keywords) >= 3 and word_count >= 40:
         score = 92
@@ -430,46 +594,57 @@ def interview_chat(req: ChatMessageRequest):
         score = 80
         feedback_note = "Good conceptual understanding. Solid baseline explanation."
     else:
-        score = 70
+        score = 72
         feedback_note = "Adequate response, but could dive deeper into lower-level mechanics."
         
     session["evaluations"].append({
         "question_num": session["questions_asked"],
         "day": current_item["day"],
         "domain": current_item["domain"],
-        "question": session["messages"][-2]["content"] if len(session["messages"]) >= 2 else current_item["question"],
+        "question": current_item["question"],
         "candidate_answer": candidate_text,
         "score": score,
         "note": feedback_note,
         "keywords_found": found_keywords
     })
     
-    # Decision: Ask dynamic follow-up OR advance to next curriculum day
     should_follow_up = (not session["in_follow_up"]) and (word_count < 25 or score < 75)
+    agent_response = None
     
     if should_follow_up:
         session["in_follow_up"] = True
-        follow_up_prompt = (
-            f"Thanks for sharing that perspective on Day {current_item['day']} ({current_item['domain']}). "
-            f"To follow up: You mentioned handling this approach, but what specific trade-offs or edge cases did you evaluate when "
-            f"putting this into production? For example, how did you measure system performance under peak load?"
-        )
-        agent_response = follow_up_prompt
         session["questions_asked"] += 1
+        
+        if is_live:
+            agent_response = call_gemini_api_sdk(
+                api_key=api_key,
+                model_name=model_name,
+                candidate_name=candidate_info.get("name", "Candidate"),
+                candidate_role=candidate_info.get("jobRole", "Engineer"),
+                day=current_item["day"],
+                domain=current_item["domain"],
+                question=current_item["question"],
+                candidate_text=candidate_text
+            )
+            
+        if not agent_response:
+            agent_response = (
+                f"Thank you for sharing your approach to {current_item['domain']}.\n\n"
+                f"To follow up: When putting this into production, what specific trade-offs or edge cases did you evaluate "
+                f"regarding latency, memory, or failure handling?"
+            )
     else:
         session["in_follow_up"] = False
         session["current_step"] += 1
         next_step = session["current_step"]
-        
-        # Check completion condition: Minimum 8 questions AND at least 4 curriculum days
         unique_days = list(set(session["days_covered"]))
         
         if session["questions_asked"] >= 8 and len(unique_days) >= 4:
             session["is_complete"] = True
             agent_response = (
-                f"Excellent answer! That concludes our 8+ question technical deep-dive across multiple curriculum days "
+                f"Excellent discussion! That completes our technical deep-dive across multiple curriculum days "
                 f"(Days covered: {', '.join(map(str, sorted(unique_days)))}).\n\n"
-                f"I am now generating your comprehensive, structured interview evaluation feedback report below."
+                f"I am now generating your comprehensive evaluation report below."
             )
         elif next_step < len(roadmap):
             next_item = roadmap[next_step]
@@ -477,21 +652,34 @@ def interview_chat(req: ChatMessageRequest):
                 session["days_covered"].append(next_item["day"])
             session["questions_asked"] += 1
             
-            agent_response = (
-                f"Got it, great engineering reasoning!\n\n"
-                f"Let's move to **Day {next_item['day']}: {next_item['domain']}**.\n\n"
-                f"{next_item['question']}"
-            )
+            if is_live:
+                agent_response = call_gemini_api_sdk(
+                    api_key=api_key,
+                    model_name=model_name,
+                    candidate_name=candidate_info.get("name", "Candidate"),
+                    candidate_role=candidate_info.get("jobRole", "Engineer"),
+                    day=current_item["day"],
+                    domain=current_item["domain"],
+                    question=current_item["question"],
+                    candidate_text=candidate_text,
+                    next_day=next_item["day"],
+                    next_domain=next_item["domain"],
+                    next_question=next_item["question"]
+                )
+                
+            if not agent_response:
+                agent_response = (
+                    f"Thank you for explaining your implementation details for {current_item['domain']}.\n\n"
+                    f"Let's move to **Day {next_item['day']}: {next_item['domain']}**.\n\n"
+                    f"{next_item['question']}"
+                )
         else:
-            # Reached end of roadmap
             session["is_complete"] = True
             agent_response = (
                 f"Thank you for walking through your engineering journey with me!\n\n"
-                f"We've covered {session['questions_asked']} detailed questions across {len(unique_days)} curriculum days. "
                 f"Your structured interview evaluation report is ready below."
             )
             
-    # Store agent response
     session["messages"].append({
         "role": "agent",
         "content": agent_response,
@@ -500,8 +688,6 @@ def interview_chat(req: ChatMessageRequest):
     })
     
     unique_days_list = sorted(list(set(session["days_covered"])))
-    
-    # Check if a live code challenge is available for current day
     live_challenge = None
     day_key = f"challenge_day_{current_item['day']}"
     if day_key in LIVE_CODE_CHALLENGES and session["questions_asked"] in [3, 5, 7]:
@@ -517,7 +703,9 @@ def interview_chat(req: ChatMessageRequest):
         "is_complete": session["is_complete"],
         "in_follow_up": session["in_follow_up"],
         "score_last": score,
-        "live_test_challenge": live_challenge
+        "live_test_challenge": live_challenge,
+        "mode": "live" if is_live else "demo",
+        "mode_notice": mode_notice
     }
 
 @app.post("/api/interview/live-test/submit")
