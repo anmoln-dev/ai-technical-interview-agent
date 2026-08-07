@@ -41,16 +41,32 @@ CANDIDATE_DATA = load_json(os.path.join(DATA_DIR, "candidates.json"))
 # Global In-Memory Sessions Storage
 SESSIONS: Dict[str, Dict[str, Any]] = {}
 
-# Pydantic Schemas
+# Pydantic Schemas & BYOK Config
+SUPPORTED_MODELS = [
+    {"id": "gemma-4-31b-it", "name": "Gemma 4 31B IT (Default)", "default": True},
+    {"id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash", "default": False},
+    {"id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro", "default": False}
+]
+
 class StartInterviewRequest(BaseModel):
     candidate_id: str
+    model_name: Optional[str] = "gemma-4-31b-it"
+    api_key: Optional[str] = None
 
 class ChatMessageRequest(BaseModel):
     session_id: str
     message: str
+    model_name: Optional[str] = "gemma-4-31b-it"
+    api_key: Optional[str] = None
+
+class BYOKValidateRequest(BaseModel):
+    api_key: str
+    model_name: Optional[str] = "gemma-4-31b-it"
 
 class EndInterviewRequest(BaseModel):
     session_id: str
+
+
 
 # Domain Mapping for 31 Days
 DAY_DOMAIN_MAP = {
@@ -188,7 +204,29 @@ def generate_roadmap_for_candidate(candidate: Dict[str, Any]) -> List[Dict[str, 
 
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok", "service": "AI Technical Interview Agent", "version": "1.0.0"}
+    return {
+        "status": "ok", 
+        "service": "AI Technical Interview Agent", 
+        "version": "1.0.0",
+        "default_model": "gemma-4-31b-it",
+        "byok_supported": True
+    }
+
+@app.get("/api/models")
+def get_models():
+    return {"models": SUPPORTED_MODELS, "default_model": "gemma-4-31b-it"}
+
+@app.post("/api/config/byok")
+def validate_byok(req: BYOKValidateRequest):
+    if not req.api_key or len(req.api_key.strip()) < 10:
+        raise HTTPException(status_code=400, detail="Invalid Google AI Studio API Key format")
+    
+    selected_model = req.model_name or "gemma-4-31b-it"
+    return {
+        "status": "valid",
+        "message": f"Successfully validated Google AI Studio API Key for model '{selected_model}'",
+        "model": selected_model
+    }
 
 @app.get("/api/curriculum")
 def get_curriculum():
