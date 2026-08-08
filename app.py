@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 try:
     from google import genai
+    from google.genai import types
     GENAI_AVAILABLE = True
 except ImportError:
     GENAI_AVAILABLE = False
@@ -259,7 +260,7 @@ def get_next_curriculum_topic(covered_days: List[int], candidate: Dict[str, Any]
             
     return 31, DAY_DOMAIN_MAP[31]
 
-def generate_dynamic_initial_question(candidate: Dict[str, Any], api_key: Optional[str] = None, model_name: Optional[str] = None) -> (str, int, str):
+def generate_dynamic_initial_question(candidate: Dict[str, Any], api_key: Optional[str] = None, model_name: Optional[str] = None) -> (str, int, str, Optional[str]):
     """Dynamically generates the initial greeting and opening question — 100% unscripted via Gemini when API key is provided."""
     member = candidate.get("member", {})
     missions = candidate.get("missions", [])
@@ -270,7 +271,7 @@ def generate_dynamic_initial_question(candidate: Dict[str, Any], api_key: Option
     start_day = high_attempt_days[0] if high_attempt_days else (skipped_days[0] if skipped_days else 7)
     start_domain = DAY_DOMAIN_MAP.get(start_day, f"Day {start_day}")
     
-    # If BYOK key present, use google-genai SDK to generate unscripted first reply
+    start_error = None
     if api_key and len(api_key.strip()) >= 10 and GENAI_AVAILABLE:
         try:
             client = genai.Client(api_key=api_key.strip())
@@ -281,14 +282,32 @@ def generate_dynamic_initial_question(candidate: Dict[str, Any], api_key: Option
                 f"Focus opening topic: Day {start_day} - {start_domain}.\n\n"
                 f"INSTRUCTIONS:\n"
                 f"1. Greet the candidate warmly and professionally as a Senior Technical Lead.\n"
-                f"2. Mention their role ({member.get('jobRole')}) and dive straight into an open-ended, realistic architectural question on Day {start_day}: {start_domain}.\n"
-                f"3. Do NOT use canned or scripted templates. Write an authentic opening question."
+                f"2. Mention their role ({member.get('jobRole')}) and ask an authentic, open-ended opening technical question exploring Day {start_day}: {start_domain}.\n"
+                f"3. Do NOT use canned or scripted templates. Write an authentic, compelling opening question."
             )
-            res = client.models.generate_content(model=model, contents=system_prompt)
+            cfg = types.GenerateContentConfig(system_instruction=system_prompt)
+            res = None
+            try:
+                res = client.models.generate_content(
+                    model=model,
+                    contents="Please begin the interview with your opening greeting and question.",
+                    config=cfg
+                )
+            except Exception as e1:
+                if model != "gemini-1.5-flash":
+                    res = client.models.generate_content(
+                        model="gemini-1.5-flash",
+                        contents="Please begin the interview with your opening greeting and question.",
+                        config=cfg
+                    )
+                else:
+                    raise e1
+
             if res and res.text:
-                return res.text.strip(), start_day, start_domain
+                return res.text.strip(), start_day, start_domain, None
         except Exception as e:
-            print(f"genai SDK start greeting exception: {e}")
+            start_error = str(e)
+            print(f"genai SDK start greeting exception: {start_error}")
 
     # Dynamic fallback generator for simulation mode (tailored to candidate profile, no rigid template)
     initial_text = (
@@ -297,7 +316,7 @@ def generate_dynamic_initial_question(candidate: Dict[str, Any], api_key: Option
         f"To kick off our discussion, let's explore **Day {start_day}: {start_domain}**.\n\n"
         f"Walk me through how you implemented {start_domain} in your cohort project — what primary architectural trade-offs and design decisions did you evaluate?"
     )
-    return initial_text, start_day, start_domain
+    return initial_text, start_day, start_domain, start_error
 
 def classify_candidate_intent(text: str) -> str:
     t = text.lower().strip()
@@ -323,12 +342,11 @@ def call_gemini_api_sdk(
     candidate_text: str,
     covered_days: List[int],
     messages: Optional[List[Dict[str, Any]]] = None,
-    question: Optional[str] = None,
     next_day: Optional[int] = None,
     next_domain: Optional[str] = None
 ) -> (Optional[str], Optional[str]):
     """
-    Uses official google-genai SDK for 100% unscripted, context-aware LLM responses.
+    Uses official google-genai SDK with multi-turn types.Content history for 100% unscripted LLM responses.
     Returns (response_text, error_reason). error_reason is None on success.
     """
     if not GENAI_AVAILABLE:
@@ -337,45 +355,57 @@ def call_gemini_api_sdk(
         client = genai.Client(api_key=api_key.strip())
         model = resolve_model_id(model_name)
 
-        # Build clean conversation transcript history so Gemini has full conversational context
-        history_lines = []
-        if messages:
-            for m in messages[-8:]:
-                role = "Interviewer" if m.get("role") == "agent" else f"Candidate ({candidate_name})"
-                content = m.get("content", "").strip()
-                if content:
-                    history_lines.append(f"{role}: {content}")
-        history_block = "\n\n".join(history_lines)
-
         transition_guidance = (
-            f"Acknowledge what the candidate explained, then organically transition to Day {next_day}: {next_domain} with a realistic, hands-on question."
+            f"Acknowledge what the candidate explained, then organically transition to Day {next_day}: {next_domain} with a realistic, hands-on technical problem."
             if next_day and next_domain
             else f"Ask a focused, practical follow-up question on {domain} regarding real-world edge cases or scalability."
         )
 
         system_instruction = (
-            f"You are an expert Senior AI Lead Interviewer conducting a live, 100% unscripted technical interview for {candidate_name} ({candidate_role}).\n"
+            f"You are an expert Senior AI Lead Interviewer conducting a live, realistic, 100% unscripted technical interview for {candidate_name} ({candidate_role}).\n"
             f"Current curriculum focus: Day {day} - {domain}.\n"
             f"Curriculum days covered so far: {', '.join(map(str, covered_days))}.\n\n"
             f"RULES:\n"
-            f"1. Be flexible, organic, and unscripted. Respond directly to the candidate's actual points, reasoning, and depth.\n"
-            f"2. If the candidate asked a question or asked to clarify/repeat, respond naturally and restate.\n"
-            f"3. {transition_guidance}\n"
-            f"4. Near the end of the interview (around questions 6-8), present a practical technical coding or system design problem directly in the chat, asking the candidate to write out their implementation.\n"
-            f"5. Keep your tone realistic, collegial, and concise (2-4 sentences max). Never use generic canned compliments."
+            f"1. Be flexible, organic, and 100% unscripted. React authentically to what the candidate actually says — if they ask a question like 'Are you an AI?' or ask to clarify/repeat, answer naturally and collegially.\n"
+            f"2. {transition_guidance}\n"
+            f"3. Near the end of the interview (around questions 6-8), present a practical technical coding challenge in the chat, asking the candidate to write out their code in the live coding tool.\n"
+            f"4. Keep your responses concise, professional, and conversational (2-4 sentences max). Never use generic canned compliments."
         )
 
-        user_content = (
-            f"INTERVIEW TRANSCRIPT SO FAR:\n{history_block}\n\n"
-            f"LATEST CANDIDATE RESPONSE:\n'{candidate_text}'\n\n"
-            f"YOUR TASK: Respond as the Senior Interviewer."
-        )
+        # Build native multi-turn contents list
+        contents = []
+        if messages:
+            for m in messages[-10:]:
+                role = "model" if m.get("role") == "agent" else "user"
+                content_text = m.get("content", "").strip()
+                if content_text:
+                    contents.append(types.Content(role=role, parts=[types.Part.from_text(text=content_text)]))
 
-        response = client.models.generate_content(
-            model=model,
-            contents=f"{system_instruction}\n\n{user_content}"
-        )
-        text = response.text.strip() if response and response.text else None
+        # Append candidate's latest response as the user turn if not already last
+        if not contents or contents[-1].role != "user":
+            contents.append(types.Content(role="user", parts=[types.Part.from_text(text=candidate_text)]))
+
+        cfg = types.GenerateContentConfig(system_instruction=system_instruction)
+
+        # Try primary model, fallback to gemini-1.5-flash if needed
+        res = None
+        try:
+            res = client.models.generate_content(
+                model=model,
+                contents=contents,
+                config=cfg
+            )
+        except Exception as e1:
+            if model != "gemini-1.5-flash":
+                res = client.models.generate_content(
+                    model="gemini-1.5-flash",
+                    contents=contents,
+                    config=cfg
+                )
+            else:
+                raise e1
+
+        text = res.text.strip() if res and res.text else None
         if not text:
             return None, "Empty response from Gemini API"
         return text, None
@@ -441,22 +471,26 @@ def start_interview(req: StartInterviewRequest, request: Request):
         raise HTTPException(status_code=404, detail="Candidate not found")
         
     api_key = req.api_key or request.headers.get("X-GEMINI-API-KEY")
-    model_name = req.model_name or "gemma-4-31b-it"
+    model_name = req.model_name or "gemini-2.0-flash"
     is_live = bool(api_key and len(api_key.strip()) >= 10)
     
     session_id = str(uuid.uuid4())
     
-    # Dynamically generate initial greeting & opening question (no hardcoded reply)
-    initial_question, start_day, start_domain = generate_dynamic_initial_question(
+    # Dynamically generate initial greeting & opening question — 100% unscripted via Gemini
+    initial_question, start_day, start_domain, start_error = generate_dynamic_initial_question(
         candidate=candidate,
         api_key=api_key if is_live else None,
         model_name=model_name
     )
     
+    fallback_triggered = bool(is_live and start_error)
+    fallback_reason = start_error if fallback_triggered else None
+    
     mode_notice = (
-        f"⚡ Live Mode (Connected via Google AI Studio API using {model_name})"
-        if is_live
-        else "💡 Demo Mode (Simulated AI Interviewer — Add your Google AI Studio API Key in BYOK Settings for live Gemini LLM)"
+        f"⚡ Live Mode (Connected via Google AI Studio API: {resolve_model_id(model_name)})"
+        if is_live and not fallback_triggered
+        else ("⚠️ Live Mode — Fallback Active (Gemini API error)" if fallback_triggered
+              else "💡 Demo Mode (Simulated AI Interviewer — Add your Google AI Studio API Key in Settings)")
     )
     
     session = {
@@ -497,7 +531,9 @@ def start_interview(req: StartInterviewRequest, request: Request):
         "days_covered_list": [start_day],
         "is_complete": False,
         "mode": "live" if is_live else "demo",
-        "mode_notice": mode_notice
+        "mode_notice": mode_notice,
+        "fallback": fallback_triggered,
+        "fallback_reason": fallback_reason
     }
 
 @app.post("/api/interview/chat")
@@ -750,6 +786,7 @@ def interview_chat(req: ChatMessageRequest, request: Request):
             else:
                 fallback_triggered = True
                 fallback_reason = sdk_error
+                agent_response = f"⚠️ [Live AI Connection Issue: {sdk_error}]. Please check your API key in Settings, or continuing in simulation mode."
 
         if not agent_response:
             agent_response = (
