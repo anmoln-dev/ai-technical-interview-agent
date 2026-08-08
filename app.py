@@ -508,10 +508,12 @@ def interview_chat(req: ChatMessageRequest, request: Request):
         else "💡 Demo Mode (Simulated AI Interviewer — Add your Google AI Studio API Key in Settings for live Gemini LLM)"
     )
     
-    intent = classify_candidate_intent(candidate_text)
+    # Pattern matching / intent interception runs ONLY in Demo Mode (when NO API key is provided).
+    # When API key is provided (is_live), raw response goes directly to Gemini LLM with zero pattern matching.
+    intent = classify_candidate_intent(candidate_text) if not is_live else "ANSWER"
     
-    # ── 1. HANDLE REPEAT / CLARIFICATION REQUEST ────────────────────────────────
-    if intent == "REPEAT_REQUEST":
+    # ── 1. HANDLE REPEAT / CLARIFICATION REQUEST (DEMO MODE ONLY) ───────────────
+    if not is_live and intent == "REPEAT_REQUEST":
         last_question = "the previous technical question"
         for m in reversed(session["messages"][:-1]):
             if m.get("role") == "agent":
@@ -546,8 +548,8 @@ def interview_chat(req: ChatMessageRequest, request: Request):
             "mode_notice": mode_notice
         }
 
-    # ── 2. HANDLE UNSURE / SKIP REQUEST ─────────────────────────────────────────
-    if intent == "UNSURE":
+    # ── 2. HANDLE UNSURE / SKIP REQUEST (DEMO MODE ONLY) ─────────────────────────
+    if not is_live and intent == "UNSURE":
         score = 60
         feedback_note = "Candidate indicated they were unsure on this topic."
         session["evaluations"].append({
