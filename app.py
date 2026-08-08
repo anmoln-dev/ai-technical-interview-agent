@@ -334,6 +334,7 @@ def call_gemini_api_sdk(
             f"gently prompt them to elaborate rather than moving on.\n"
             f"2. DO NOT OVERLY STRETCH A SINGLE DAY. After 1 question or brief follow-up on Day {day}, transition smoothly.\n"
             f"3. Avoid canned compliments unless earned.\n"
+            f"4. Near the end of the interview (or around questions 6-8), present a practical technical coding or system design challenge in the chat, asking the candidate to write out or explain their implementation.\n"
         )
 
         if next_day and next_domain:
@@ -786,9 +787,11 @@ def interview_chat(req: ChatMessageRequest, request: Request):
 
     unique_days_list = sorted(list(set(session["days_covered"])))
     live_challenge = None
-    day_key = f"challenge_day_{session['current_day']}"
-    if day_key in LIVE_CODE_CHALLENGES and session["questions_asked"] in [3, 5, 7]:
-        live_challenge = LIVE_CODE_CHALLENGES[day_key]
+    # Scripted modal popup triggers ONLY in Demo Mode (when no API key is provided)
+    if not is_live:
+        day_key = f"challenge_day_{session['current_day']}"
+        if day_key in LIVE_CODE_CHALLENGES and session["questions_asked"] in [3, 5, 7]:
+            live_challenge = LIVE_CODE_CHALLENGES[day_key]
 
     return {
         "agent_response": agent_response,
