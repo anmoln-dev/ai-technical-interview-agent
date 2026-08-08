@@ -276,6 +276,9 @@ function updateModeBadge(mode, notice) {
   if (mode === 'live') {
     badge.className = 'badge-mode live';
     badge.textContent = '⚡ Live AI Mode (Google AI Studio)';
+  } else if (mode === 'fallback') {
+    badge.className = 'badge-mode fallback';
+    badge.textContent = '⚠️ Live Mode — Fallback Active';
   } else {
     badge.className = 'badge-mode demo';
     badge.textContent = '💡 Demo Mode (Simulated AI)';
@@ -398,7 +401,16 @@ async function submitAnswer() {
     state.daysCovered = data.days_covered_list;
 
     updateProgressGauges(data.questions_asked, data.days_covered_list);
-    if (data.mode) updateModeBadge(data.mode, data.mode_notice);
+
+    // Update mode badge: if backend fell back to scripted response despite a live key, show warning
+    if (data.fallback) {
+      const reason = data.fallback_reason ? ` (${data.fallback_reason})` : '';
+      showToast(`⚠️ Gemini API unavailable — using scripted fallback response${reason}`, 'warning');
+      updateModeBadge('fallback', `Live mode active but Gemini API call failed${reason}. Response was generated using scripted fallback.`);
+    } else if (data.mode) {
+      updateModeBadge(data.mode, data.mode_notice);
+    }
+
     appendMessage('agent', data.agent_response);
 
     if (data.live_test_challenge) openLiveTestModal(data.live_test_challenge);

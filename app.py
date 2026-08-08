@@ -301,57 +301,70 @@ def classify_candidate_intent(text: str) -> str:
     return "ANSWER"
 
 def call_gemini_api_sdk(
-    api_key: str, 
-    model_name: str, 
-    candidate_name: str, 
-    candidate_role: str, 
-    day: int, 
-    domain: str, 
-    question: str, 
-    candidate_text: str, 
+    api_key: str,
+    model_name: str,
+    candidate_name: str,
+    candidate_role: str,
+    day: int,
+    domain: str,
+    question: str,
+    candidate_text: str,
     covered_days: List[int],
-    next_day: Optional[int] = None, 
+    next_day: Optional[int] = None,
     next_domain: Optional[str] = None
-) -> Optional[str]:
-    """Uses official google-genai SDK for requests with an unscripted, flexible system prompt and strict pacing constraint."""
+) -> (Optional[str], Optional[str]):
+    """
+    Uses official google-genai SDK for unscripted LLM responses.
+    Returns (response_text, error_reason). error_reason is None on success.
+    """
     if not GENAI_AVAILABLE:
-        return None
+        return None, "google-genai SDK not installed"
     try:
         client = genai.Client(api_key=api_key)
         model = model_name if model_name and "gemini" in model_name else "gemini-2.5-flash"
-        
+
         system_instruction = (
-            f"You are an expert Senior AI Lead Interviewer conducting a personalized, flexible technical interview for {candidate_name} ({candidate_role}).\n"
+            f"You are an expert Senior AI Lead Interviewer conducting a personalized, flexible technical interview "
+            f"for {candidate_name} ({candidate_role}).\n"
             f"Current topic: Day {day} - {domain}.\n"
             f"Curriculum days already covered: {', '.join(map(str, covered_days))}.\n\n"
-            f"FLEXIBILITY & PACING RULES:\n"
-            f"1. Be flexible, organic, and unscripted. React authentically to what the candidate actually said.\n"
-            f"2. DO NOT OVERLY STRETCH A SINGLE DAY. Ask at most 1 question or 1 brief follow-up on Day {day}, then transition smoothly to a new curriculum day.\n"
-            f"3. Avoid canned compliments like 'great engineering reasoning' unless earned.\n"
+            f"RULES:\n"
+            f"1. Be flexible, organic, and unscripted. Respond authentically to whatever the candidate said — "
+            f"if they asked to repeat the question, restate it clearly; if they said something vague like 'Hmm' or 'Sorry', "
+            f"gently prompt them to elaborate rather than moving on.\n"
+            f"2. DO NOT OVERLY STRETCH A SINGLE DAY. After 1 question or brief follow-up on Day {day}, transition smoothly.\n"
+            f"3. Avoid canned compliments unless earned.\n"
         )
-        
+
         if next_day and next_domain:
             user_prompt = (
                 f"Question asked on Day {day} ({domain}): '{question}'\n"
                 f"Candidate's response: '{candidate_text}'\n\n"
-                f"Task: Briefly acknowledge their response in 1 concise sentence (reflecting their actual point). "
-                f"Then transition organically to Day {next_day} ({next_domain}) and ask a compelling open-ended question on that topic."
+                f"Task: Briefly acknowledge their response in 1 concise sentence, then transition to Day {next_day} "
+                f"({next_domain}) and ask a compelling open-ended question on that topic."
             )
         else:
             user_prompt = (
                 f"Question asked on Day {day} ({domain}): '{question}'\n"
                 f"Candidate's response: '{candidate_text}'\n\n"
-                f"Task: Ask 1 short, focused technical follow-up on production trade-offs or edge cases. Do not linger on this topic for long."
+                f"Task: Respond naturally. If the candidate gave a substantive answer, ask 1 short follow-up on "
+                f"production trade-offs. If their response was vague or very short, gently prompt them to elaborate."
             )
-            
+
         response = client.models.generate_content(
             model=model,
             contents=f"{system_instruction}\n\n{user_prompt}"
         )
-        return response.text.strip() if response and response.text else None
+        text = response.text.strip() if response and response.text else None
+        if not text:
+            return None, "Empty response from Gemini API"
+        return text, None
     except Exception as e:
-        print(f"google-genai SDK call exception: {e}")
-        return None
+        error_msg = str(e)
+        print(f"google-genai SDK call exception: {error_msg}")
+        # Surface a concise reason (strip verbose JSON bodies)
+        short_reason = error_msg.split("'")[0].strip() if "'" in error_msg else error_msg[:120]
+        return None, short_reason
 
 @app.get("/api/health")
 def health_check():
@@ -633,20 +646,67 @@ def interview_chat(req: ChatMessageRequest, request: Request):
         "keywords_found": found_keywords
     })
     
-    # PACING RULE: Do NOT overly stretch a day!
-    # Follow up only if response was brief AND we haven't already followed up on this day
+    fallback_triggered = False
+    fallback_reason: Optional[str] = None
+    agent_response = None
+
+    # ── Live mode: very short / non-substantive inputs go straight to Gemini ─────
+    # Do NOT score them or advance the interview — let the LLM handle naturally.
+    if is_live and word_count < 3:
+        sdk_text, sdk_error = call_gemini_api_sdk(
+            api_key=api_key,
+            model_name=model_name,
+            candidate_name=candidate_info.get("name", "Candidate"),
+            candidate_role=candidate_info.get("jobRole", "Engineer"),
+            day=current_day,
+            domain=current_domain,
+            question=f"Question regarding {current_domain}",
+            candidate_text=candidate_text,
+            covered_days=session["days_covered"]
+        )
+        if sdk_text:
+            agent_response = sdk_text
+        else:
+            fallback_triggered = True
+            fallback_reason = sdk_error
+            agent_response = "I didn't quite catch that — could you share a bit more detail about your approach?"
+
+        session["messages"].append({
+            "role": "agent",
+            "content": agent_response,
+            "day": session["current_day"],
+            "topic": session["current_domain"]
+        })
+        unique_days_list = sorted(list(set(session["days_covered"])))
+        return {
+            "agent_response": agent_response,
+            "session_id": session_id,
+            "questions_asked": session["questions_asked"],
+            "days_covered_count": len(unique_days_list),
+            "days_covered_list": unique_days_list,
+            "current_day": session["current_day"],
+            "is_complete": session["is_complete"],
+            "in_follow_up": session["in_follow_up"],
+            "score_last": score,
+            "live_test_challenge": None,
+            "mode": "live",
+            "mode_notice": mode_notice,
+            "fallback": fallback_triggered,
+            "fallback_reason": fallback_reason
+        }
+
+    # ── PACING RULE: Do NOT overly stretch a day! ─────────────────────────────────
+    # Follow up only if response was brief AND we haven't already followed up on this day.
     questions_on_this_day = session.get("questions_on_current_day", 1)
     should_follow_up = (not session["in_follow_up"]) and (questions_on_this_day < 2) and (word_count < 20 or score < 75)
-    
-    agent_response = None
-    
+
     if should_follow_up:
         session["in_follow_up"] = True
         session["questions_on_current_day"] += 1
         session["questions_asked"] += 1
-        
+
         if is_live:
-            agent_response = call_gemini_api_sdk(
+            sdk_text, sdk_error = call_gemini_api_sdk(
                 api_key=api_key,
                 model_name=model_name,
                 candidate_name=candidate_info.get("name", "Candidate"),
@@ -657,7 +717,12 @@ def interview_chat(req: ChatMessageRequest, request: Request):
                 candidate_text=candidate_text,
                 covered_days=session["days_covered"]
             )
-            
+            if sdk_text:
+                agent_response = sdk_text
+            else:
+                fallback_triggered = True
+                fallback_reason = sdk_error
+
         if not agent_response:
             agent_response = (
                 f"Thank you for sharing your approach to {current_domain}.\n\n"
@@ -668,7 +733,7 @@ def interview_chat(req: ChatMessageRequest, request: Request):
         # Move to next curriculum day immediately to avoid stretching
         session["in_follow_up"] = False
         unique_days = list(set(session["days_covered"]))
-        
+
         if session["questions_asked"] >= 8 and len(unique_days) >= 4:
             session["is_complete"] = True
             agent_response = (
@@ -684,9 +749,9 @@ def interview_chat(req: ChatMessageRequest, request: Request):
             session["current_domain"] = next_domain
             session["questions_on_current_day"] = 1
             session["questions_asked"] += 1
-            
+
             if is_live:
-                agent_response = call_gemini_api_sdk(
+                sdk_text, sdk_error = call_gemini_api_sdk(
                     api_key=api_key,
                     model_name=model_name,
                     candidate_name=candidate_info.get("name", "Candidate"),
@@ -699,21 +764,26 @@ def interview_chat(req: ChatMessageRequest, request: Request):
                     next_day=next_day,
                     next_domain=next_domain
                 )
-                
+                if sdk_text:
+                    agent_response = sdk_text
+                else:
+                    fallback_triggered = True
+                    fallback_reason = sdk_error
+
             if not agent_response:
                 agent_response = (
                     f"Thank you for explaining your implementation details for {current_domain}.\n\n"
                     f"Let's move to **Day {next_day}: {next_domain}**.\n\n"
                     f"Walk me through how you designed your pipeline for {next_domain} — what were the key technical decisions you made?"
                 )
-            
+
     session["messages"].append({
         "role": "agent",
         "content": agent_response,
         "day": session["current_day"],
         "topic": session["current_domain"]
     })
-    
+
     unique_days_list = sorted(list(set(session["days_covered"])))
     live_challenge = None
     day_key = f"challenge_day_{session['current_day']}"
@@ -732,7 +802,9 @@ def interview_chat(req: ChatMessageRequest, request: Request):
         "score_last": score,
         "live_test_challenge": live_challenge,
         "mode": "live" if is_live else "demo",
-        "mode_notice": mode_notice
+        "mode_notice": mode_notice,
+        "fallback": fallback_triggered,
+        "fallback_reason": fallback_reason
     }
 
 @app.post("/api/interview/live-test/submit")
