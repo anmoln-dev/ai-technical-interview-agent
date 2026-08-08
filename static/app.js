@@ -13,8 +13,8 @@ let state = {
   speechRate: 1.0,
   fontSize: 'normal',
   contrastMode: 'normal',
-  byokApiKey: '',
-  selectedModel: 'gemma-4-31b-it',
+  byokApiKey: localStorage.getItem('byok_api_key') || '',
+  selectedModel: localStorage.getItem('selected_model') || 'gemini-2.0-flash',
   // Track last focused element before opening a modal (for focus-restore on close)
   _lastFocusBeforeModal: null,
   // Track which modal is open so hotkeys can guard against modal-open state
@@ -295,7 +295,11 @@ async function startInterviewSession(candidateId) {
         'Content-Type': 'application/json',
         'X-GEMINI-API-KEY': state.byokApiKey,
       },
-      body: JSON.stringify({ candidate_id: candidateId }),
+      body: JSON.stringify({
+        candidate_id: candidateId,
+        api_key: state.byokApiKey,
+        model_name: state.selectedModel,
+      }),
     });
 
     const data = await res.json();
@@ -393,7 +397,12 @@ async function submitAnswer() {
         'Content-Type': 'application/json',
         'X-GEMINI-API-KEY': state.byokApiKey,
       },
-      body: JSON.stringify({ session_id: state.sessionId, message: text }),
+      body: JSON.stringify({
+        session_id: state.sessionId,
+        message: text,
+        api_key: state.byokApiKey,
+        model_name: state.selectedModel,
+      }),
     });
 
     const data = await res.json();
@@ -746,7 +755,13 @@ function setupAccessibilityControls() {
   // ── Settings modal ───────────────────────────────────────────────────────
   const settingsBtn = document.getElementById('btn-open-settings');
   if (settingsBtn) {
-    settingsBtn.addEventListener('click', () => openModal('modal-settings', settingsBtn));
+    settingsBtn.addEventListener('click', () => {
+      const keyInput = document.getElementById('input-byok-key');
+      const modelSelect = document.getElementById('select-model-name');
+      if (keyInput) keyInput.value = state.byokApiKey;
+      if (modelSelect) modelSelect.value = state.selectedModel;
+      openModal('modal-settings', settingsBtn);
+    });
   }
   document.getElementById('btn-close-settings')?.addEventListener('click', () => closeModal('modal-settings'));
 
@@ -755,6 +770,8 @@ function setupAccessibilityControls() {
     const model = document.getElementById('select-model-name').value;
     state.byokApiKey = apiKey;
     state.selectedModel = model;
+    localStorage.setItem('byok_api_key', apiKey);
+    localStorage.setItem('selected_model', model);
 
     if (apiKey) {
       try {
@@ -767,7 +784,6 @@ function setupAccessibilityControls() {
     }
 
     closeModal('modal-settings');
-    // Fix C7: replace alert() with toast
     showToast(`Settings saved! Active model: ${model}`, 'success');
   });
 

@@ -51,8 +51,22 @@ SESSIONS: Dict[str, Dict[str, Any]] = {}
 SUPPORTED_MODELS = [
     {"id": "gemma-4-31b-it", "name": "Gemma 4 31B IT (Default)", "default": True},
     {"id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash", "default": False},
-    {"id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro", "default": False}
+    {"id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro", "default": False},
+    {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash (Recommended)", "default": False}
 ]
+
+def resolve_model_id(model_name: Optional[str]) -> str:
+    """Resolves any model alias to a valid Google AI Studio Gemini model ID."""
+    if not model_name:
+        return "gemini-2.0-flash"
+    m = model_name.lower().strip()
+    if "pro" in m:
+        return "gemini-1.5-pro"
+    if "1.5" in m:
+        return "gemini-1.5-flash"
+    if "2.0" in m or "2.5" in m or "flash" in m or "gemini" in m:
+        return "gemini-2.0-flash"
+    return "gemini-2.0-flash"
 
 class StartInterviewRequest(BaseModel):
     candidate_id: str
@@ -246,7 +260,7 @@ def get_next_curriculum_topic(covered_days: List[int], candidate: Dict[str, Any]
     return 31, DAY_DOMAIN_MAP[31]
 
 def generate_dynamic_initial_question(candidate: Dict[str, Any], api_key: Optional[str] = None, model_name: Optional[str] = None) -> (str, int, str):
-    """Dynamically generates the initial greeting and opening question — no hardcoded first reply."""
+    """Dynamically generates the initial greeting and opening question — 100% unscripted via Gemini when API key is provided."""
     member = candidate.get("member", {})
     missions = candidate.get("missions", [])
     
@@ -257,19 +271,18 @@ def generate_dynamic_initial_question(candidate: Dict[str, Any], api_key: Option
     start_domain = DAY_DOMAIN_MAP.get(start_day, f"Day {start_day}")
     
     # If BYOK key present, use google-genai SDK to generate unscripted first reply
-    if api_key and GENAI_AVAILABLE:
+    if api_key and len(api_key.strip()) >= 10 and GENAI_AVAILABLE:
         try:
-            client = genai.Client(api_key=api_key)
-            model = model_name if model_name and "gemini" in model_name else "gemini-2.5-flash"
+            client = genai.Client(api_key=api_key.strip())
+            model = resolve_model_id(model_name)
             system_prompt = (
-                f"You are a Senior AI Lead Interviewer starting a technical interview for candidate {member.get('name')} ({member.get('jobRole')}).\n"
-                f"They completed {len(missions)} days in the 31-Day Enterprise AI Cohort.\n"
-                f"High-attempt days: {high_attempt_days}. Skipped days: {skipped_days}.\n\n"
+                f"You are an expert Senior AI Lead Interviewer conducting a live, realistic, 100% unscripted technical interview for {member.get('name')} ({member.get('jobRole')}).\n"
+                f"They recently completed an intensive 31-Day Enterprise AI Cohort.\n"
+                f"Focus opening topic: Day {start_day} - {start_domain}.\n\n"
                 f"INSTRUCTIONS:\n"
-                f"1. Greet the candidate warmly and professionally as a Senior Lead Interviewer.\n"
-                f"2. Mention their role ({member.get('jobRole')}) and completed cohort learning journey.\n"
-                f"3. Ask an engaging opening technical question focusing on Day {start_day}: {start_domain}.\n"
-                f"4. Do NOT use canned generic scripts."
+                f"1. Greet the candidate warmly and professionally as a Senior Technical Lead.\n"
+                f"2. Mention their role ({member.get('jobRole')}) and dive straight into an open-ended, realistic architectural question on Day {start_day}: {start_domain}.\n"
+                f"3. Do NOT use canned or scripted templates. Write an authentic opening question."
             )
             res = client.models.generate_content(model=model, contents=system_prompt)
             if res and res.text:
@@ -307,54 +320,60 @@ def call_gemini_api_sdk(
     candidate_role: str,
     day: int,
     domain: str,
-    question: str,
     candidate_text: str,
     covered_days: List[int],
+    messages: Optional[List[Dict[str, Any]]] = None,
+    question: Optional[str] = None,
     next_day: Optional[int] = None,
     next_domain: Optional[str] = None
 ) -> (Optional[str], Optional[str]):
     """
-    Uses official google-genai SDK for unscripted LLM responses.
+    Uses official google-genai SDK for 100% unscripted, context-aware LLM responses.
     Returns (response_text, error_reason). error_reason is None on success.
     """
     if not GENAI_AVAILABLE:
         return None, "google-genai SDK not installed"
     try:
-        client = genai.Client(api_key=api_key)
-        model = model_name if model_name and "gemini" in model_name else "gemini-2.5-flash"
+        client = genai.Client(api_key=api_key.strip())
+        model = resolve_model_id(model_name)
 
-        system_instruction = (
-            f"You are an expert Senior AI Lead Interviewer conducting a personalized, flexible technical interview "
-            f"for {candidate_name} ({candidate_role}).\n"
-            f"Current topic: Day {day} - {domain}.\n"
-            f"Curriculum days already covered: {', '.join(map(str, covered_days))}.\n\n"
-            f"RULES:\n"
-            f"1. Be flexible, organic, and unscripted. Respond authentically to whatever the candidate said — "
-            f"if they asked to repeat the question, restate it clearly; if they said something vague like 'Hmm' or 'Sorry', "
-            f"gently prompt them to elaborate rather than moving on.\n"
-            f"2. DO NOT OVERLY STRETCH A SINGLE DAY. After 1 question or brief follow-up on Day {day}, transition smoothly.\n"
-            f"3. Avoid canned compliments unless earned.\n"
-            f"4. Near the end of the interview (or around questions 6-8), present a practical technical coding or system design challenge in the chat, asking the candidate to write out or explain their implementation.\n"
+        # Build clean conversation transcript history so Gemini has full conversational context
+        history_lines = []
+        if messages:
+            for m in messages[-8:]:
+                role = "Interviewer" if m.get("role") == "agent" else f"Candidate ({candidate_name})"
+                content = m.get("content", "").strip()
+                if content:
+                    history_lines.append(f"{role}: {content}")
+        history_block = "\n\n".join(history_lines)
+
+        transition_guidance = (
+            f"Acknowledge what the candidate explained, then organically transition to Day {next_day}: {next_domain} with a realistic, hands-on question."
+            if next_day and next_domain
+            else f"Ask a focused, practical follow-up question on {domain} regarding real-world edge cases or scalability."
         )
 
-        if next_day and next_domain:
-            user_prompt = (
-                f"Question asked on Day {day} ({domain}): '{question}'\n"
-                f"Candidate's response: '{candidate_text}'\n\n"
-                f"Task: Briefly acknowledge their response in 1 concise sentence, then transition to Day {next_day} "
-                f"({next_domain}) and ask a compelling open-ended question on that topic."
-            )
-        else:
-            user_prompt = (
-                f"Question asked on Day {day} ({domain}): '{question}'\n"
-                f"Candidate's response: '{candidate_text}'\n\n"
-                f"Task: Respond naturally. If the candidate gave a substantive answer, ask 1 short follow-up on "
-                f"production trade-offs. If their response was vague or very short, gently prompt them to elaborate."
-            )
+        system_instruction = (
+            f"You are an expert Senior AI Lead Interviewer conducting a live, 100% unscripted technical interview for {candidate_name} ({candidate_role}).\n"
+            f"Current curriculum focus: Day {day} - {domain}.\n"
+            f"Curriculum days covered so far: {', '.join(map(str, covered_days))}.\n\n"
+            f"RULES:\n"
+            f"1. Be flexible, organic, and unscripted. Respond directly to the candidate's actual points, reasoning, and depth.\n"
+            f"2. If the candidate asked a question or asked to clarify/repeat, respond naturally and restate.\n"
+            f"3. {transition_guidance}\n"
+            f"4. Near the end of the interview (around questions 6-8), present a practical technical coding or system design problem directly in the chat, asking the candidate to write out their implementation.\n"
+            f"5. Keep your tone realistic, collegial, and concise (2-4 sentences max). Never use generic canned compliments."
+        )
+
+        user_content = (
+            f"INTERVIEW TRANSCRIPT SO FAR:\n{history_block}\n\n"
+            f"LATEST CANDIDATE RESPONSE:\n'{candidate_text}'\n\n"
+            f"YOUR TASK: Respond as the Senior Interviewer."
+        )
 
         response = client.models.generate_content(
             model=model,
-            contents=f"{system_instruction}\n\n{user_prompt}"
+            contents=f"{system_instruction}\n\n{user_content}"
         )
         text = response.text.strip() if response and response.text else None
         if not text:
@@ -363,7 +382,6 @@ def call_gemini_api_sdk(
     except Exception as e:
         error_msg = str(e)
         print(f"google-genai SDK call exception: {error_msg}")
-        # Surface a concise reason (strip verbose JSON bodies)
         short_reason = error_msg.split("'")[0].strip() if "'" in error_msg else error_msg[:120]
         return None, short_reason
 
@@ -670,9 +688,9 @@ def interview_chat(req: ChatMessageRequest, request: Request):
             candidate_role=candidate_info.get("jobRole", "Engineer"),
             day=current_day,
             domain=current_domain,
-            question=f"Question regarding {current_domain}",
             candidate_text=candidate_text,
-            covered_days=session["days_covered"]
+            covered_days=session["days_covered"],
+            messages=session.get("messages", [])
         )
         if sdk_text:
             agent_response = sdk_text
@@ -723,9 +741,9 @@ def interview_chat(req: ChatMessageRequest, request: Request):
                 candidate_role=candidate_info.get("jobRole", "Engineer"),
                 day=current_day,
                 domain=current_domain,
-                question=f"Question regarding {current_domain}",
                 candidate_text=candidate_text,
-                covered_days=session["days_covered"]
+                covered_days=session["days_covered"],
+                messages=session.get("messages", [])
             )
             if sdk_text:
                 agent_response = sdk_text
@@ -766,9 +784,9 @@ def interview_chat(req: ChatMessageRequest, request: Request):
                     candidate_role=candidate_info_local.get("jobRole", "Engineer"),
                     day=current_day,
                     domain=current_domain,
-                    question=closing_prompt,
                     candidate_text="[Interview closing — generate closing message and live coding challenge instruction]",
-                    covered_days=session["days_covered"]
+                    covered_days=session["days_covered"],
+                    messages=session.get("messages", [])
                 )
                 if sdk_text:
                     agent_response = sdk_text
@@ -800,9 +818,9 @@ def interview_chat(req: ChatMessageRequest, request: Request):
                     candidate_role=candidate_info.get("jobRole", "Engineer"),
                     day=current_day,
                     domain=current_domain,
-                    question=f"Question regarding {current_domain}",
                     candidate_text=candidate_text,
                     covered_days=session["days_covered"],
+                    messages=session.get("messages", []),
                     next_day=next_day,
                     next_domain=next_domain
                 )
