@@ -620,22 +620,31 @@ def interview_chat(req: ChatMessageRequest, request: Request):
     # ── 3. STANDARD ANSWER EVALUATION & RESPONSE GENERATION ──────────────────────
     words = candidate_text.split()
     word_count = len(words)
-    technical_keywords = ["latency", "vector", "embedding", "trade-off", "fastapi", "mcp", "agent", "chroma", "pydantic", "docker", "k8s", "sql", "rag", "eval", "guardrail", "cache", "token", "quantization", "fine-tuning"]
-    found_keywords = [w for w in technical_keywords if w in candidate_text.lower()]
-    
-    if word_count < 15:
-        score = 65
-        feedback_note = "Response was brief. Lacked specific architectural trade-offs or technical details."
-    elif len(found_keywords) >= 3 and word_count >= 40:
-        score = 92
-        feedback_note = "Strong response! Clear explanation of technical choices and engineering rationale."
-    elif len(found_keywords) >= 1:
-        score = 80
-        feedback_note = "Good conceptual understanding. Solid baseline explanation."
+
+    # In Demo Mode use keyword heuristics to score; in Live Mode Gemini evaluates naturally.
+    if not is_live:
+        technical_keywords = ["latency", "vector", "embedding", "trade-off", "fastapi", "mcp", "agent",
+                               "chroma", "pydantic", "docker", "k8s", "sql", "rag", "eval",
+                               "guardrail", "cache", "token", "quantization", "fine-tuning"]
+        found_keywords = [w for w in technical_keywords if w in candidate_text.lower()]
+        if word_count < 15:
+            score = 65
+            feedback_note = "Response was brief. Lacked specific architectural trade-offs or technical details."
+        elif len(found_keywords) >= 3 and word_count >= 40:
+            score = 92
+            feedback_note = "Strong response! Clear explanation of technical choices and engineering rationale."
+        elif len(found_keywords) >= 1:
+            score = 80
+            feedback_note = "Good conceptual understanding. Solid baseline explanation."
+        else:
+            score = 72
+            feedback_note = "Adequate response, but could dive deeper into lower-level mechanics."
     else:
-        score = 72
-        feedback_note = "Adequate response, but could dive deeper into lower-level mechanics."
-        
+        # Live Mode: neutral score placeholder — Gemini generates all evaluation narrative.
+        found_keywords = []
+        score = 0  # will be replaced by AI-generated report
+        feedback_note = "(AI-evaluated — see final report)"
+
     session["evaluations"].append({
         "question_num": session["questions_asked"],
         "day": current_day,
@@ -737,11 +746,43 @@ def interview_chat(req: ChatMessageRequest, request: Request):
 
         if session["questions_asked"] >= 8 and len(unique_days) >= 4:
             session["is_complete"] = True
-            agent_response = (
-                f"Excellent discussion! That completes our technical deep-dive across multiple curriculum days "
-                f"(Days covered: {', '.join(map(str, sorted(unique_days)))}).\n\n"
-                f"I am now generating your comprehensive evaluation report below."
-            )
+            if is_live:
+                # Ask Gemini to write a natural closing message and invoke the live coding tool
+                candidate_info_local = session.get("candidate", {}).get("member", {})
+                closing_prompt = (
+                    f"You are wrapping up the technical interview for {candidate_info_local.get('name')} "
+                    f"({candidate_info_local.get('jobRole')}).\n"
+                    f"Curriculum days covered: {', '.join(map(str, sorted(unique_days)))}.\n\n"
+                    f"Write a warm, natural closing message that:\n"
+                    f"1. Briefly reflects on the conversation (1-2 sentences).\n"
+                    f"2. Tells the candidate there is one final hands-on coding challenge and instructs them to use the live coding tool (the code editor panel) that will appear.\n"
+                    f"3. Describe the coding challenge topic based on the curriculum days covered — pick the most relevant one to test practically.\n"
+                    f"Do NOT use generic scripted phrases. Make it feel like a real interview closing."
+                )
+                sdk_text, sdk_error = call_gemini_api_sdk(
+                    api_key=api_key,
+                    model_name=model_name,
+                    candidate_name=candidate_info_local.get("name", "Candidate"),
+                    candidate_role=candidate_info_local.get("jobRole", "Engineer"),
+                    day=current_day,
+                    domain=current_domain,
+                    question=closing_prompt,
+                    candidate_text="[Interview closing — generate closing message and live coding challenge instruction]",
+                    covered_days=session["days_covered"]
+                )
+                if sdk_text:
+                    agent_response = sdk_text
+                    # Signal frontend to open live test modal
+                    session["live_test_requested_by_ai"] = True
+                else:
+                    fallback_triggered = True
+                    fallback_reason = sdk_error
+            if not agent_response:
+                agent_response = (
+                    f"Excellent discussion! That completes our technical deep-dive across multiple curriculum days "
+                    f"(Days covered: {', '.join(map(str, sorted(unique_days)))}).\n\n"
+                    f"I am now generating your comprehensive evaluation report below."
+                )
         else:
             next_day, next_domain = get_next_curriculum_topic(session["days_covered"], candidate_full)
             if next_day not in session["days_covered"]:
@@ -804,6 +845,7 @@ def interview_chat(req: ChatMessageRequest, request: Request):
         "in_follow_up": session["in_follow_up"],
         "score_last": score,
         "live_test_challenge": live_challenge,
+        "live_test_requested_by_ai": session.get("live_test_requested_by_ai", False),
         "mode": "live" if is_live else "demo",
         "mode_notice": mode_notice,
         "fallback": fallback_triggered,
@@ -880,12 +922,84 @@ def generate_feedback_internal(session: Dict[str, Any]) -> Dict[str, Any]:
     evaluations = session.get("evaluations", [])
     candidate = session.get("candidate", {})
     member = candidate.get("member", {})
-    
-    if evaluations:
-        avg_score = round(sum(e["score"] for e in evaluations) / len(evaluations))
+    unique_days_covered = sorted(list(set(session.get("days_covered", []))))
+    missions = candidate.get("missions", [])
+    skipped = [m["day"] for m in missions if m.get("skipped")]
+    review_days = skipped if skipped else [14, 26, 29]
+    is_live = session.get("is_live", False)
+    api_key = session.get("api_key")
+    model_name = session.get("model_name", "gemini-2.5-flash")
+
+    # ── Live Mode: Gemini generates the entire report from the real conversation ─────────
+    if is_live and api_key and GENAI_AVAILABLE:
+        try:
+            # Build a concise transcript summary for the prompt
+            messages = session.get("messages", [])
+            transcript_lines = []
+            for m in messages:
+                role_label = "Interviewer" if m["role"] == "agent" else "Candidate"
+                transcript_lines.append(f"{role_label}: {m['content'][:400]}")
+            transcript_text = "\n".join(transcript_lines[-30:])  # last 30 turns max
+
+            report_prompt = (
+                f"You are generating a formal post-interview evaluation report for {member.get('name')} "
+                f"({member.get('jobRole')}).\n"
+                f"Curriculum days covered during interview: {', '.join(map(str, unique_days_covered))}.\n\n"
+                f"Here is the interview transcript (last 30 turns):\n{transcript_text}\n\n"
+                f"Based ONLY on the actual conversation above, produce a structured JSON object with exactly "
+                f"these fields (no markdown, no extra text, raw JSON only):\n"
+                f"{{\n"
+                f"  \"overall_score\": <integer 0-100 based on actual performance>,\n"
+                f"  \"readiness_level\": <concise level string e.g. 'Senior AI Engineer Ready'>,\n"
+                f"  \"recommendation\": <2-3 sentences of honest hiring recommendation>,\n"
+                f"  \"domain_scores\": {{\n"
+                f"    \"<domain_name>\": <integer 0-100>,\n"
+                f"    ... (one entry per curriculum day covered, using the actual day topic as the key)\n"
+                f"  }},\n"
+                f"  \"strengths\": [<3 specific strengths observed in THIS conversation>],\n"
+                f"  \"growth_areas\": [<3 specific areas where this candidate can improve, based on THIS conversation>],\n"
+                f"  \"recommended_review_days\": [<list of integer day numbers from the 31-day cohort to review>]\n"
+                f"}}"
+            )
+
+            client = genai.Client(api_key=api_key)
+            model = model_name if model_name and "gemini" in model_name else "gemini-2.5-flash"
+            response = client.models.generate_content(model=model, contents=report_prompt)
+            raw = response.text.strip() if response and response.text else None
+
+            if raw:
+                # Strip markdown code fences if present
+                if raw.startswith("```"):
+                    raw = raw.split("```")[1]
+                    if raw.startswith("json"):
+                        raw = raw[4:]
+                ai_report = json.loads(raw.strip())
+                return {
+                    "session_id": session["session_id"],
+                    "candidate": member,
+                    "overall_score": ai_report.get("overall_score", 75),
+                    "readiness_level": ai_report.get("readiness_level", "AI Engineer"),
+                    "recommendation": ai_report.get("recommendation", ""),
+                    "questions_asked_total": session["questions_asked"],
+                    "unique_days_covered_count": len(unique_days_covered),
+                    "unique_days_covered": unique_days_covered,
+                    "domain_scores": ai_report.get("domain_scores", {}),
+                    "strengths": ai_report.get("strengths", []),
+                    "growth_areas": ai_report.get("growth_areas", []),
+                    "recommended_review_days": ai_report.get("recommended_review_days", review_days),
+                    "question_evaluations": evaluations,
+                    "ai_generated": True
+                }
+        except Exception as e:
+            print(f"AI report generation failed, falling back to static: {e}")
+
+    # ── Demo Mode (or AI report failure): static heuristic generation ──────────────
+    real_evals = [e for e in evaluations if e.get("score", 0) > 0]
+    if real_evals:
+        avg_score = round(sum(e["score"] for e in real_evals) / len(real_evals))
     else:
         avg_score = 78
-        
+
     if avg_score >= 88:
         readiness = "Senior / Staff AI Engineer Ready"
         recommendation = "Outstanding technical depth. Strong candidate for enterprise AI Lead roles."
@@ -896,7 +1010,6 @@ def generate_feedback_internal(session: Dict[str, Any]) -> Dict[str, Any]:
         readiness = "Associate AI Engineer (Concept Review Recommended)"
         recommendation = "Good foundational knowledge. Recommend targeted review of skipped/low-score curriculum days."
 
-    # Domain Breakdown
     domain_scores = {
         "Embeddings & Vector DB (Days 7-10)": random.randint(82, 95) if avg_score > 80 else random.randint(70, 82),
         "Prompting & Function Calling (Days 11-13)": random.randint(85, 96) if avg_score > 80 else random.randint(72, 84),
@@ -905,27 +1018,19 @@ def generate_feedback_internal(session: Dict[str, Any]) -> Dict[str, Any]:
         "Evaluation & Guardrails (Days 25-27)": random.randint(75, 90) if avg_score > 80 else random.randint(65, 75),
         "Docker & Kubernetes Deploy (Days 28-31)": random.randint(80, 95) if avg_score > 80 else random.randint(65, 80)
     }
-    
-    # Specific Strengths & Growth Areas
+
     strengths = [
         "Demonstrates clear reasoning around architectural choices and system trade-offs.",
         f"Strong familiarity with core cohort tools tailored to the {member.get('jobRole', 'Engineer')} role.",
         "Articulates RAG retrieval mechanics and vector search design effectively."
     ]
-    
+
     growth_areas = [
         "Flesh out concrete edge-case handling during function calling & tool error recovery.",
         "Deepen quantitative benchmarks when evaluating model latency vs token optimization.",
         "Practice communicating complex multi-agent routing decisions succinctly during high-stakes interviews."
     ]
-    
-    unique_days_covered = sorted(list(set(session.get("days_covered", []))))
-    
-    # Determine recommended review days (pick days skipped or low score)
-    missions = candidate.get("missions", [])
-    skipped = [m["day"] for m in missions if m.get("skipped")]
-    review_days = skipped if skipped else [14, 26, 29]
-    
+
     return {
         "session_id": session["session_id"],
         "candidate": member,
@@ -939,7 +1044,8 @@ def generate_feedback_internal(session: Dict[str, Any]) -> Dict[str, Any]:
         "strengths": strengths,
         "growth_areas": growth_areas,
         "recommended_review_days": review_days,
-        "question_evaluations": evaluations
+        "question_evaluations": evaluations,
+        "ai_generated": False
     }
 
 # Serve static frontend files
