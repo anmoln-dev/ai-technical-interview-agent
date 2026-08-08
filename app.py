@@ -191,88 +191,100 @@ DAY_DOMAIN_MAP = {
     31: "Capstone Project & Systems Architecture"
 }
 
-# Questions Repository based on Curriculum Objectives & Engineering Decisions
-DAY_QUESTIONS = {
-    7: [
-        "In Day 7, you built vector embeddings for knowledge base chunks. How did you decide between dense vector embeddings (like Sentence Transformers) versus sparse keyword representations, and how did you measure embedding retrieval quality?",
-        "When generating vector embeddings for healthcare documents, how did cosine similarity perform compared to Euclidean distance, and why did you choose that distance metric?"
-    ],
-    8: [
-        "In Day 8 (Vector Databases), you evaluated ChromaDB against cloud alternatives like Pinecone. What were the key architectural trade-offs regarding memory, indexing algorithms (like HNSW), and operational complexity?",
-        "How did you structure metadata filtering in ChromaDB to ensure fast filtered vector search without sacrificing recall?"
-    ],
-    10: [
-        "In Day 10, you built a hybrid Retrieval & Matching Engine. How did your query router determine whether to send a query to SQL, vector search, or both, and how did you deduplicate and rank merged results?",
-        "What failure modes did you encounter when merging structured SQL data lookups with semantic vector search results, and how did you handle schema mismatches?"
-    ],
-    12: [
-        "During Day 12 Prompt Engineering, how did you balance context window token limits against grounding instructions to prevent LLM hallucination in healthcare answers?",
-        "Can you describe how you designed few-shot prompt templates to enforce consistent output formatting across different model providers?"
-    ],
-    13: [
-        "In Day 13, you implemented LLM Function Calling with Pydantic output validation. How did your backend handle cases where the LLM generated invalid tool arguments or hallucinated non-existent tools?",
-        "What architectural pattern did you use to execute function calls asynchronously without blocking the user chat stream?"
-    ],
-    16: [
-        "On Day 16, you built the FastAPI backend for the chatbot. How did you handle session management and concurrency when multiple candidates or users sent parallel chat requests?",
-        "How did you design your API error handling and middleware to prevent internal exception leaks while maintaining clean HTTP status codes?"
-    ],
-    20: [
-        "In Day 20, you implemented Conversation Memory & Context Management. How did your sliding window or summarization strategy prevent exceeding token limits during long multi-turn interviews?",
-        "How did you ensure privacy and context isolation between different user chat sessions in SQLite?"
-    ],
-    22: [
-        "In Day 22 (Multi-Agent Orchestration), you designed specialist agents and a router. What were the key challenges with loop detection, agent hand-offs, and debugging reasoning traces?",
-        "Compared to a monolithic single-agent setup, when did the multi-agent architecture add unnecessary latency, and how did you mitigate it?"
-    ],
-    23: [
-        "In Day 23, you built an MCP (Model Context Protocol) server. How does MCP standardize tool discovery and client-server communication compared to standard REST tool calls?",
-        "What security and validation checks did you implement on your MCP server tools before exposing them to external LLM clients?"
-    ],
-    27: [
-        "On Day 27 (Security, Privacy & Guardrails), how did you protect your chatbot pipeline against prompt injection attacks and unauthorized access to sensitive data?",
-        "What input sanitization rules and guardrails did you set up to sanitize user prompts before sending them to the LLM?"
-    ],
-    28: [
-        "In Day 28, you containerized and deployed the application using Docker and Kubernetes. How did you structure your multi-stage Dockerfile to minimize image size, and how were health probes configured in K8s?",
-        "How did you manage environment variables, secret keys, and DB state across Kubernetes pods during scaling?"
-    ],
-    31: [
-        "For your Capstone Project (Day 31), walk me through your end-to-end architecture from user prompt to RAG retrieval, agent tool execution, and final UI streaming response.",
-        "What was the single most difficult engineering decision you made in your capstone project, and how would you redesign it for production at scale?"
-    ]
+# Flexible Topic Mapping for 31 Days
+DAY_DOMAIN_MAP = {
+    1: "Environment & Setup",
+    2: "Local LLM Tooling",
+    3: "Full-Stack AI Setup",
+    4: "Structured Data & SQL",
+    5: "Unstructured Data & OCR",
+    6: "Knowledge Base Construction",
+    7: "Embeddings & Vector Search",
+    8: "Vector Databases Overview",
+    9: "Building Vector DBs",
+    10: "Retrieval & Matching Engine",
+    11: "RAG & LLM API Basics",
+    12: "Prompt Engineering Fundamentals",
+    13: "Function Calling & Structured Outputs",
+    14: "Fine-Tuning Concepts",
+    15: "Fine-Tuning LoRA / QLoRA",
+    16: "Chatbot Backend & FastAPI",
+    17: "Chatbot Frontend Development",
+    18: "Streaming Responses & SSE",
+    19: "Response Formatting & Citations",
+    20: "Conversation Memory & Context",
+    21: "LangChain Agents & ReAct",
+    22: "Multi-Agent Orchestration",
+    23: "Model Context Protocol (MCP)",
+    24: "Agentic Pipeline Integration",
+    25: "Chatbot Evaluation & Benchmarking",
+    26: "Performance & Cost Optimization",
+    27: "Security & Guardrails",
+    28: "Docker & Kubernetes Deployment",
+    29: "Monitoring & Observability",
+    30: "Production Readiness",
+    31: "Capstone Project & Systems Architecture"
 }
 
-# Helper to pick candidate's question roadmap
-def generate_roadmap_for_candidate(candidate: Dict[str, Any]) -> List[Dict[str, Any]]:
+def get_next_curriculum_topic(covered_days: List[int], candidate: Dict[str, Any]) -> (int, str):
+    """Dynamically picks the next curriculum topic without a rigid hardcoded roadmap."""
     missions = candidate.get("missions", [])
     high_attempt_days = [m["day"] for m in missions if m.get("attempts", 1) >= 3]
     skipped_days = [m["day"] for m in missions if m.get("skipped", False)]
-    available_days = list(DAY_QUESTIONS.keys())
-    selected_days = []
     
-    for d in high_attempt_days:
-        if d in available_days and d not in selected_days:
-            selected_days.append(d)
-    for d in skipped_days:
-        if d in available_days and d not in selected_days:
-            selected_days.append(d)
-    for d in [31, 23, 22, 10, 8, 7, 13, 12, 28, 27, 20, 16]:
-        if d not in selected_days and d in available_days:
-            selected_days.append(d)
+    # Priority list tailored to candidate's journey
+    candidate_priorities = high_attempt_days + skipped_days + [31, 23, 22, 10, 8, 7, 13, 12, 28, 27, 20, 16]
+    
+    for day in candidate_priorities:
+        if day in DAY_DOMAIN_MAP and day not in covered_days:
+            return day, DAY_DOMAIN_MAP[day]
             
-    selected_days.sort()
-    roadmap = []
-    for d in selected_days:
-        questions = DAY_QUESTIONS.get(d, [])
-        if questions:
-            roadmap.append({
-                "day": d,
-                "domain": DAY_DOMAIN_MAP.get(d, f"Day {d}"),
-                "question": questions[0],
-                "alt_question": questions[1] if len(questions) > 1 else questions[0]
-            })
-    return roadmap
+    for day in range(1, 32):
+        if day not in covered_days and day in DAY_DOMAIN_MAP:
+            return day, DAY_DOMAIN_MAP[day]
+            
+    return 31, DAY_DOMAIN_MAP[31]
+
+def generate_dynamic_initial_question(candidate: Dict[str, Any], api_key: Optional[str] = None, model_name: Optional[str] = None) -> (str, int, str):
+    """Dynamically generates the initial greeting and opening question — no hardcoded first reply."""
+    member = candidate.get("member", {})
+    missions = candidate.get("missions", [])
+    
+    high_attempt_days = [m["day"] for m in missions if m.get("attempts", 1) >= 3]
+    skipped_days = [m["day"] for m in missions if m.get("skipped", False)]
+    
+    start_day = high_attempt_days[0] if high_attempt_days else (skipped_days[0] if skipped_days else 7)
+    start_domain = DAY_DOMAIN_MAP.get(start_day, f"Day {start_day}")
+    
+    # If BYOK key present, use google-genai SDK to generate unscripted first reply
+    if api_key and GENAI_AVAILABLE:
+        try:
+            client = genai.Client(api_key=api_key)
+            model = model_name if model_name and "gemini" in model_name else "gemini-2.5-flash"
+            system_prompt = (
+                f"You are a Senior AI Lead Interviewer starting a technical interview for candidate {member.get('name')} ({member.get('jobRole')}).\n"
+                f"They completed {len(missions)} days in the 31-Day Enterprise AI Cohort.\n"
+                f"High-attempt days: {high_attempt_days}. Skipped days: {skipped_days}.\n\n"
+                f"INSTRUCTIONS:\n"
+                f"1. Greet the candidate warmly and professionally as a Senior Lead Interviewer.\n"
+                f"2. Mention their role ({member.get('jobRole')}) and completed cohort learning journey.\n"
+                f"3. Ask an engaging opening technical question focusing on Day {start_day}: {start_domain}.\n"
+                f"4. Do NOT use canned generic scripts."
+            )
+            res = client.models.generate_content(model=model, contents=system_prompt)
+            if res and res.text:
+                return res.text.strip(), start_day, start_domain
+        except Exception as e:
+            print(f"genai SDK start greeting exception: {e}")
+
+    # Dynamic fallback generator for simulation mode (tailored to candidate profile, no rigid template)
+    initial_text = (
+        f"Welcome {member.get('name')}! It's great to have you here for your cohort technical assessment.\n\n"
+        f"I've reviewed your background as a {member.get('jobRole')} across the 31-day Enterprise AI Cohort. "
+        f"To kick off our discussion, let's explore **Day {start_day}: {start_domain}**.\n\n"
+        f"Walk me through how you implemented {start_domain} in your cohort project — what primary architectural trade-offs and design decisions did you evaluate?"
+    )
+    return initial_text, start_day, start_domain
 
 def classify_candidate_intent(text: str) -> str:
     t = text.lower().strip()
@@ -288,35 +300,53 @@ def classify_candidate_intent(text: str) -> str:
             
     return "ANSWER"
 
-def call_gemini_api_sdk(api_key: str, model_name: str, candidate_name: str, candidate_role: str, day: int, domain: str, question: str, candidate_text: str, next_day: Optional[int] = None, next_domain: Optional[str] = None, next_question: Optional[str] = None) -> Optional[str]:
-    """Uses the official google-genai package for requests if available."""
+def call_gemini_api_sdk(
+    api_key: str, 
+    model_name: str, 
+    candidate_name: str, 
+    candidate_role: str, 
+    day: int, 
+    domain: str, 
+    question: str, 
+    candidate_text: str, 
+    covered_days: List[int],
+    next_day: Optional[int] = None, 
+    next_domain: Optional[str] = None
+) -> Optional[str]:
+    """Uses official google-genai SDK for requests with an unscripted, flexible system prompt and strict pacing constraint."""
     if not GENAI_AVAILABLE:
         return None
     try:
         client = genai.Client(api_key=api_key)
-        # Normalize model identifier
         model = model_name if model_name and "gemini" in model_name else "gemini-2.5-flash"
         
-        prompt_instruction = (
-            f"You are a Senior AI Lead Interviewer evaluating candidate {candidate_name} ({candidate_role}).\n"
-            f"Current curriculum topic: Day {day} - {domain}.\n"
-            f"Question asked: {question}\n"
-            f"Candidate response: {candidate_text}\n\n"
+        system_instruction = (
+            f"You are an expert Senior AI Lead Interviewer conducting a personalized, flexible technical interview for {candidate_name} ({candidate_role}).\n"
+            f"Current topic: Day {day} - {domain}.\n"
+            f"Curriculum days already covered: {', '.join(map(str, covered_days))}.\n\n"
+            f"FLEXIBILITY & PACING RULES:\n"
+            f"1. Be flexible, organic, and unscripted. React authentically to what the candidate actually said.\n"
+            f"2. DO NOT OVERLY STRETCH A SINGLE DAY. Ask at most 1 question or 1 brief follow-up on Day {day}, then transition smoothly to a new curriculum day.\n"
+            f"3. Avoid canned compliments like 'great engineering reasoning' unless earned.\n"
         )
-        if next_day and next_question:
-            prompt_instruction += (
-                f"Instructions: Acknowledge the candidate's specific response in 1 short sentence without empty praise. "
-                f"Then transition smoothly to Day {next_day}: {next_domain}. "
-                f"End by asking: '{next_question}'."
+        
+        if next_day and next_domain:
+            user_prompt = (
+                f"Question asked on Day {day} ({domain}): '{question}'\n"
+                f"Candidate's response: '{candidate_text}'\n\n"
+                f"Task: Briefly acknowledge their response in 1 concise sentence (reflecting their actual point). "
+                f"Then transition organically to Day {next_day} ({next_domain}) and ask a compelling open-ended question on that topic."
             )
         else:
-            prompt_instruction += (
-                f"Instructions: Ask a relevant, technical follow-up question focusing on production trade-offs or failure cases."
+            user_prompt = (
+                f"Question asked on Day {day} ({domain}): '{question}'\n"
+                f"Candidate's response: '{candidate_text}'\n\n"
+                f"Task: Ask 1 short, focused technical follow-up on production trade-offs or edge cases. Do not linger on this topic for long."
             )
             
         response = client.models.generate_content(
             model=model,
-            contents=prompt_instruction
+            contents=f"{system_instruction}\n\n{user_prompt}"
         )
         return response.text.strip() if response and response.text else None
     except Exception as e:
@@ -383,14 +413,12 @@ def start_interview(req: StartInterviewRequest, request: Request):
     is_live = bool(api_key and len(api_key.strip()) >= 10)
     
     session_id = str(uuid.uuid4())
-    roadmap = generate_roadmap_for_candidate(candidate)
     
-    initial_item = roadmap[0]
-    initial_question = (
-        f"Welcome {candidate['member']['name']}! I've reviewed your background as a {candidate['member']['jobRole']} "
-        f"and your completed 31-day AI Cohort learning journey.\n\n"
-        f"Let's dive right into your technical experience. We'll start with **Day {initial_item['day']}: {initial_item['domain']}**.\n\n"
-        f"{initial_item['question']}"
+    # Dynamically generate initial greeting & opening question (no hardcoded reply)
+    initial_question, start_day, start_domain = generate_dynamic_initial_question(
+        candidate=candidate,
+        api_key=api_key if is_live else None,
+        model_name=model_name
     )
     
     mode_notice = (
@@ -403,10 +431,11 @@ def start_interview(req: StartInterviewRequest, request: Request):
         "session_id": session_id,
         "candidate_id": req.candidate_id,
         "candidate": candidate,
-        "roadmap": roadmap,
-        "current_step": 0,
         "questions_asked": 1,
-        "days_covered": [initial_item["day"]],
+        "current_day": start_day,
+        "current_domain": start_domain,
+        "days_covered": [start_day],
+        "questions_on_current_day": 1,
         "api_key": api_key,
         "model_name": model_name,
         "is_live": is_live,
@@ -414,8 +443,8 @@ def start_interview(req: StartInterviewRequest, request: Request):
             {
                 "role": "agent",
                 "content": initial_question,
-                "day": initial_item["day"],
-                "topic": initial_item["domain"]
+                "day": start_day,
+                "topic": start_domain
             }
         ],
         "evaluations": [],
@@ -429,11 +458,11 @@ def start_interview(req: StartInterviewRequest, request: Request):
         "session_id": session_id,
         "candidate": candidate["member"],
         "initial_question": initial_question,
-        "current_day": initial_item["day"],
-        "current_topic": initial_item["domain"],
+        "current_day": start_day,
+        "current_topic": start_domain,
         "questions_asked": 1,
         "days_covered_count": 1,
-        "days_covered_list": [initial_item["day"]],
+        "days_covered_list": [start_day],
         "is_complete": False,
         "mode": "live" if is_live else "demo",
         "mode_notice": mode_notice
@@ -455,17 +484,17 @@ def interview_chat(req: ChatMessageRequest, request: Request):
         }
         
     candidate_text = req.message.strip()
-    current_step = session["current_step"]
-    roadmap = session["roadmap"]
-    current_item = roadmap[current_step] if current_step < len(roadmap) else roadmap[-1]
+    current_day = session.get("current_day", 7)
+    current_domain = session.get("current_domain", "Embeddings & Vector Search")
     candidate_info = session.get("candidate", {}).get("member", {})
+    candidate_full = session.get("candidate", {})
     
     # Store candidate message
     session["messages"].append({
         "role": "candidate",
         "content": candidate_text,
-        "day": current_item["day"],
-        "topic": current_item["domain"]
+        "day": current_day,
+        "topic": current_domain
     })
     
     # Check for BYOK API Key
@@ -483,7 +512,7 @@ def interview_chat(req: ChatMessageRequest, request: Request):
     
     # ── 1. HANDLE REPEAT / CLARIFICATION REQUEST ────────────────────────────────
     if intent == "REPEAT_REQUEST":
-        last_question = current_item["question"]
+        last_question = "the previous technical question"
         for m in reversed(session["messages"][:-1]):
             if m.get("role") == "agent":
                 last_question = m["content"]
@@ -497,8 +526,8 @@ def interview_chat(req: ChatMessageRequest, request: Request):
         session["messages"].append({
             "role": "agent",
             "content": agent_response,
-            "day": current_item["day"],
-            "topic": current_item["domain"]
+            "day": current_day,
+            "topic": current_domain
         })
         
         unique_days_list = sorted(list(set(session["days_covered"])))
@@ -508,7 +537,7 @@ def interview_chat(req: ChatMessageRequest, request: Request):
             "questions_asked": session["questions_asked"],
             "days_covered_count": len(unique_days_list),
             "days_covered_list": unique_days_list,
-            "current_day": current_item["day"],
+            "current_day": current_day,
             "is_complete": session["is_complete"],
             "in_follow_up": session["in_follow_up"],
             "score_last": 70,
@@ -523,43 +552,37 @@ def interview_chat(req: ChatMessageRequest, request: Request):
         feedback_note = "Candidate indicated they were unsure on this topic."
         session["evaluations"].append({
             "question_num": session["questions_asked"],
-            "day": current_item["day"],
-            "domain": current_item["domain"],
-            "question": current_item["question"],
+            "day": current_day,
+            "domain": current_domain,
+            "question": f"Question regarding {current_domain}",
             "candidate_answer": candidate_text,
             "score": score,
             "note": feedback_note,
             "keywords_found": []
         })
         
+        # Pacing rule: move to next topic without stretching
+        next_day, next_domain = get_next_curriculum_topic(session["days_covered"], candidate_full)
+        if next_day not in session["days_covered"]:
+            session["days_covered"].append(next_day)
+        session["current_day"] = next_day
+        session["current_domain"] = next_domain
+        session["questions_on_current_day"] = 1
         session["in_follow_up"] = False
-        session["current_step"] += 1
-        next_step = session["current_step"]
+        session["questions_asked"] += 1
         
-        if next_step < len(roadmap):
-            next_item = roadmap[next_step]
-            if next_item["day"] not in session["days_covered"]:
-                session["days_covered"].append(next_item["day"])
-            session["questions_asked"] += 1
-            
-            agent_response = (
-                f"No worries! System trade-offs for {current_item['domain']} can be nuanced. "
-                f"In production, engineering teams typically weigh retrieval latency against memory overhead.\n\n"
-                f"Let's move to **Day {next_item['day']}: {next_item['domain']}**.\n\n"
-                f"{next_item['question']}"
-            )
-        else:
-            session["is_complete"] = True
-            agent_response = (
-                f"Thank you for walking through your engineering journey! "
-                f"Your structured interview evaluation report is ready below."
-            )
+        agent_response = (
+            f"No worries at all! System design for {current_domain} can be nuanced. "
+            f"In production, teams balance efficiency against complexity.\n\n"
+            f"Let's move on to **Day {next_day}: {next_domain}**.\n\n"
+            f"How did you approach {next_domain} during your cohort projects, and what key technical decisions did you make?"
+        )
             
         session["messages"].append({
             "role": "agent",
             "content": agent_response,
-            "day": current_item["day"],
-            "topic": current_item["domain"]
+            "day": next_day,
+            "topic": next_domain
         })
         
         unique_days_list = sorted(list(set(session["days_covered"])))
@@ -569,7 +592,7 @@ def interview_chat(req: ChatMessageRequest, request: Request):
             "questions_asked": session["questions_asked"],
             "days_covered_count": len(unique_days_list),
             "days_covered_list": unique_days_list,
-            "current_day": current_item["day"],
+            "current_day": next_day,
             "is_complete": session["is_complete"],
             "in_follow_up": session["in_follow_up"],
             "score_last": score,
@@ -599,20 +622,25 @@ def interview_chat(req: ChatMessageRequest, request: Request):
         
     session["evaluations"].append({
         "question_num": session["questions_asked"],
-        "day": current_item["day"],
-        "domain": current_item["domain"],
-        "question": current_item["question"],
+        "day": current_day,
+        "domain": current_domain,
+        "question": f"Question regarding {current_domain}",
         "candidate_answer": candidate_text,
         "score": score,
         "note": feedback_note,
         "keywords_found": found_keywords
     })
     
-    should_follow_up = (not session["in_follow_up"]) and (word_count < 25 or score < 75)
+    # PACING RULE: Do NOT overly stretch a day!
+    # Follow up only if response was brief AND we haven't already followed up on this day
+    questions_on_this_day = session.get("questions_on_current_day", 1)
+    should_follow_up = (not session["in_follow_up"]) and (questions_on_this_day < 2) and (word_count < 20 or score < 75)
+    
     agent_response = None
     
     if should_follow_up:
         session["in_follow_up"] = True
+        session["questions_on_current_day"] += 1
         session["questions_asked"] += 1
         
         if is_live:
@@ -621,22 +649,22 @@ def interview_chat(req: ChatMessageRequest, request: Request):
                 model_name=model_name,
                 candidate_name=candidate_info.get("name", "Candidate"),
                 candidate_role=candidate_info.get("jobRole", "Engineer"),
-                day=current_item["day"],
-                domain=current_item["domain"],
-                question=current_item["question"],
-                candidate_text=candidate_text
+                day=current_day,
+                domain=current_domain,
+                question=f"Question regarding {current_domain}",
+                candidate_text=candidate_text,
+                covered_days=session["days_covered"]
             )
             
         if not agent_response:
             agent_response = (
-                f"Thank you for sharing your approach to {current_item['domain']}.\n\n"
-                f"To follow up: When putting this into production, what specific trade-offs or edge cases did you evaluate "
+                f"Thank you for sharing your approach to {current_domain}.\n\n"
+                f"To follow up briefly: When putting this into production, what specific trade-offs or edge cases did you evaluate "
                 f"regarding latency, memory, or failure handling?"
             )
     else:
+        # Move to next curriculum day immediately to avoid stretching
         session["in_follow_up"] = False
-        session["current_step"] += 1
-        next_step = session["current_step"]
         unique_days = list(set(session["days_covered"]))
         
         if session["questions_asked"] >= 8 and len(unique_days) >= 4:
@@ -646,10 +674,13 @@ def interview_chat(req: ChatMessageRequest, request: Request):
                 f"(Days covered: {', '.join(map(str, sorted(unique_days)))}).\n\n"
                 f"I am now generating your comprehensive evaluation report below."
             )
-        elif next_step < len(roadmap):
-            next_item = roadmap[next_step]
-            if next_item["day"] not in session["days_covered"]:
-                session["days_covered"].append(next_item["day"])
+        else:
+            next_day, next_domain = get_next_curriculum_topic(session["days_covered"], candidate_full)
+            if next_day not in session["days_covered"]:
+                session["days_covered"].append(next_day)
+            session["current_day"] = next_day
+            session["current_domain"] = next_domain
+            session["questions_on_current_day"] = 1
             session["questions_asked"] += 1
             
             if is_live:
@@ -658,38 +689,32 @@ def interview_chat(req: ChatMessageRequest, request: Request):
                     model_name=model_name,
                     candidate_name=candidate_info.get("name", "Candidate"),
                     candidate_role=candidate_info.get("jobRole", "Engineer"),
-                    day=current_item["day"],
-                    domain=current_item["domain"],
-                    question=current_item["question"],
+                    day=current_day,
+                    domain=current_domain,
+                    question=f"Question regarding {current_domain}",
                     candidate_text=candidate_text,
-                    next_day=next_item["day"],
-                    next_domain=next_item["domain"],
-                    next_question=next_item["question"]
+                    covered_days=session["days_covered"],
+                    next_day=next_day,
+                    next_domain=next_domain
                 )
                 
             if not agent_response:
                 agent_response = (
-                    f"Thank you for explaining your implementation details for {current_item['domain']}.\n\n"
-                    f"Let's move to **Day {next_item['day']}: {next_item['domain']}**.\n\n"
-                    f"{next_item['question']}"
+                    f"Thank you for explaining your implementation details for {current_domain}.\n\n"
+                    f"Let's move to **Day {next_day}: {next_domain}**.\n\n"
+                    f"Walk me through how you designed your pipeline for {next_domain} — what were the key technical decisions you made?"
                 )
-        else:
-            session["is_complete"] = True
-            agent_response = (
-                f"Thank you for walking through your engineering journey with me!\n\n"
-                f"Your structured interview evaluation report is ready below."
-            )
             
     session["messages"].append({
         "role": "agent",
         "content": agent_response,
-        "day": current_item["day"],
-        "topic": current_item["domain"]
+        "day": session["current_day"],
+        "topic": session["current_domain"]
     })
     
     unique_days_list = sorted(list(set(session["days_covered"])))
     live_challenge = None
-    day_key = f"challenge_day_{current_item['day']}"
+    day_key = f"challenge_day_{session['current_day']}"
     if day_key in LIVE_CODE_CHALLENGES and session["questions_asked"] in [3, 5, 7]:
         live_challenge = LIVE_CODE_CHALLENGES[day_key]
 
@@ -699,7 +724,7 @@ def interview_chat(req: ChatMessageRequest, request: Request):
         "questions_asked": session["questions_asked"],
         "days_covered_count": len(unique_days_list),
         "days_covered_list": unique_days_list,
-        "current_day": current_item["day"],
+        "current_day": session["current_day"],
         "is_complete": session["is_complete"],
         "in_follow_up": session["in_follow_up"],
         "score_last": score,
